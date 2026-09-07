@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: nest-auth-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: local_auth_oauth
+      POSTGRES_USER: hamssterr
+      POSTGRES_PASSWORD: [PASSWORD]
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:

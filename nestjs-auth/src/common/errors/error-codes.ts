@@ -1,0 +1,26 @@
+export const ErrorCodes = {
+  VALIDATION_FAILED: 'VALIDATION_FAILED',
+  AUTHENTICATION_REQUIRED: 'AUTHENTICATION_REQUIRED',
+  INVALID_CREDENTIALS: 'INVALID_CREDENTIALS',
+  MISSING_PERMISSION: 'MISSING_PERMISSION',
+  RESOURCE_NOT_FOUND: 'RESOURCE_NOT_FOUND',
+  RESOURCE_CONFLICT: 'RESOURCE_CONFLICT',
+  VERSION_CONFLICT: 'VERSION_CONFLICT',
+  INVALID_PAGINATION: 'INVALID_PAGINATION',
+  IDEMPOTENCY_KEY_REUSED: 'IDEMPOTENCY_KEY_REUSED',
+  REQUEST_IN_PROGRESS: 'REQUEST_IN_PROGRESS',
+  INTERNAL_SERVER_ERROR: 'INTERNAL_SERVER_ERROR',
+} as const;
+
+export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];
+
+export interface ApiError {
+  code: string;
+  message: string;
+  requestId: string;
+  details?: unknown;
+}
+
+export interface ApiErrorResponse {
+  error: ApiError;
+}
