@@ -14,6 +14,11 @@ export const Permissions = {
   RolePermissionsManage: 'role-permissions:manage',
   UserRolesManage: 'user-roles:manage',
   AuditRead: 'audit:read',
+  JobsRead: 'jobs:read',
+  JobsCreate: 'jobs:create',
+  JobsUpdate: 'jobs:update',
+  JobsClose: 'jobs:close',
+  JobsManage: 'jobs:manage',
 } as const;
 
 export type PermissionKey = (typeof Permissions)[keyof typeof Permissions];

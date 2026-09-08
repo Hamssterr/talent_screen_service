@@ -110,6 +110,23 @@ Migration seed ba role hệ thống `admin`, `hr`, `user` và 12 permission qu�
 
 Hệ thống ngăn admin tự vô hiệu hóa tài khoản, xóa role của admin hoạt động cuối cùng, hoặc vô hiệu hóa admin hoạt động cuối cùng.
 
+## API Quản lý Tuyển dụng (Jobs Module)
+
+| Method | Endpoint                                                    | Permission    | Người được sử dụng                         |
+| ------ | ----------------------------------------------------------- | ------------- | ------------------------------------------ |
+| POST   | `/api/v1/jobs`                                              | `jobs:create` | Admin, HR                                  |
+| GET    | `/api/v1/jobs?page=1&limit=10&status=open&scope=all`        | `jobs:read`   | Admin, HR (HR thấy Job của mình & Job open)|
+| GET    | `/api/v1/jobs/:id`                                          | `jobs:read`   | Admin, HR (HR chỉ thấy Job mình & Job open)|
+| PATCH  | `/api/v1/jobs/:id`                                          | `jobs:update` | Admin, HR (HR chỉ sửa Job do mình tạo)     |
+| POST   | `/api/v1/jobs/:id/close`                                    | `jobs:close`  | Admin, HR (HR chỉ đóng Job do mình tạo)    |
+| DELETE | `/api/v1/jobs/:id`                                          | `jobs:manage` | Chỉ Admin có quyền `jobs:manage`           |
+
+Quy tắc chính:
+- **Visibility**: HR thấy toàn bộ Job của mình và các Job `open` do HR khác tạo (`owner_id = :userId OR status = 'open'`). Admin có `jobs:manage` thấy mọi Job chưa soft delete.
+- **Optimistic Concurrency**: Mọi thao tác `PATCH` và `POST .../close` đều bắt buộc gửi kèm `expectedVersion`, trả `409 VERSION_CONFLICT` nếu dữ liệu đã bị sửa đổi.
+- **Audit Logging**: Mọi thao tác tạo, sửa, mở, đóng và xóa Job đều được ghi nhận vào bảng `audit_logs` trong cùng database transaction.
+- **Soft Delete**: Xóa Job sử dụng `deletedAt`, không hard delete dữ liệu.
+
 ## Nền tảng dùng chung (Platform Foundation)
 
 - **Response Envelope**: Thống nhất `{ message, data, meta? }`.
@@ -128,4 +145,4 @@ npm run build
 npm run lint
 ```
 
-Tài liệu thiết kế chi tiết nằm trong `docs/todo/00-baseline-auth-admin.md` và `docs/todo/01-platform-foundation.md`.
+Tài liệu thiết kế chi tiết nằm trong `docs/todo/00-baseline-auth-admin.md`, `docs/todo/01-platform-foundation.md` và `docs/todo/02-jobs.md`.
