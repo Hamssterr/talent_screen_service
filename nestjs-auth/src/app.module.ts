@@ -9,6 +9,7 @@ import { RateLimitModule } from './modules/rate-limit/rate-limit.module';
 import { RolesModule } from './modules/admin/roles/roles.module';
 import { PermissionsModule } from './modules/admin/permissions/permissions.module';
 import { AdminModule } from './modules/admin/admin.module';
+import { JobsModule } from './modules/jobs/jobs.module';
 import { BullModule } from '@nestjs/bullmq';
 import { configuration, validateEnv } from './config';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
@@ -35,6 +36,7 @@ import { TimeModule } from './platform/time/time.module';
     RolesModule,
     PermissionsModule,
     AdminModule,
+    JobsModule,
     BullModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

@@ -1,0 +1,14 @@
+# OS
+.DS_Store
+*/.DS_Store
+
+# Logs
+*.log
+
+# Dependencies
+node_modules/
+*/node_modules/
+
+# Build outputs
+dist/
+*/dist/

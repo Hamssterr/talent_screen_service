@@ -6,7 +6,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { InjectQueue } from '@nestjs/bullmq';
+const { InjectQueue } = require('@nestjs/bullmq');
 import { Queue } from 'bullmq';
 import { Brackets, DataSource, EntityManager, In } from 'typeorm';
 import { User, UserStatus } from '../users/entities/user.entity';

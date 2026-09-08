@@ -16,7 +16,7 @@ export class CookieUtil {
       secure: isProduction,
       sameSite: 'lax',
       maxAge: 7 * 24 * 60 * 60 * 1000, // Sống 7 ngày
-      path: '/api/auth', // Chỉ gửi cookie lên các API có tiền tố này
+      path: '/api/v1/auth', // Chỉ gửi cookie lên các API có tiền tố này
     });
   }
 
@@ -25,7 +25,7 @@ export class CookieUtil {
    */
   static clearRefreshTokenCookie(res: Response) {
     res.clearCookie('refreshToken', {
-      path: '/api/auth',
+      path: '/api/v1/auth',
     });
   }
 

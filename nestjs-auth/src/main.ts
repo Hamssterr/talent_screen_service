@@ -25,7 +25,7 @@ async function bootstrap() {
   });
 
   // 4. Global Prefix
-  app.setGlobalPrefix('api');
+  app.setGlobalPrefix('api/v1');
 
   // 5. Middlewares
   app.use(cookieParser());
