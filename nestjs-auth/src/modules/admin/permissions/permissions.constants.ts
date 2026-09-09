@@ -19,6 +19,15 @@ export const Permissions = {
   JobsUpdate: 'jobs:update',
   JobsClose: 'jobs:close',
   JobsManage: 'jobs:manage',
+  CandidatesRead: 'candidates:read',
+  CandidatesCreate: 'candidates:create',
+  CandidatesUpdate: 'candidates:update',
+  CandidatesManage: 'candidates:manage',
+  ApplicationsRead: 'applications:read',
+  ApplicationsCreate: 'applications:create',
+  ApplicationsUpdate: 'applications:update',
+  ApplicationsWithdraw: 'applications:withdraw',
+  ApplicationsManage: 'applications:manage',
 } as const;
 
 export type PermissionKey = (typeof Permissions)[keyof typeof Permissions];

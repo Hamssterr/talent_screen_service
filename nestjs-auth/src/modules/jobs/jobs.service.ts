@@ -304,7 +304,7 @@ export class JobsService {
       return JobResponseDto.fromEntity(updatedJob);
     });
   }
-  
+
   /**
    * Đóng Job
    */

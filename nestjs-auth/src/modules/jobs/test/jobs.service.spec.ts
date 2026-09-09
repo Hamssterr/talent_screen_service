@@ -1,4 +1,9 @@
-import { DataSource, EntityManager, Repository, SelectQueryBuilder } from 'typeorm';
+import {
+  DataSource,
+  EntityManager,
+  Repository,
+  SelectQueryBuilder,
+} from 'typeorm';
 import { JobsService } from './../jobs.service';
 import { Job } from '../entities/job.entity';
 import { PermissionsService } from 'src/modules/admin/permissions/permissions.service';
@@ -57,7 +62,7 @@ describe('JobsService', () => {
       updatedAt: new Date('2026-01-01T00:00:00Z'),
       deletedAt: null,
       ...overrides,
-    } as Job;
+    };
   };
   beforeEach(async () => {
     // 1. Giả lập Transaction Manager
@@ -194,7 +199,7 @@ describe('JobsService', () => {
         description: 'Mô tả cơ bản',
       };
 
-      const result = await service.create(mockActor, dto as any);
+      const result = await service.create(mockActor, dto);
 
       expect(result.requiredSkills).toEqual([]);
       expect(result.evaluationCriteria).toEqual([]);
@@ -217,9 +222,7 @@ describe('JobsService', () => {
         take: jest.fn().mockReturnThis(),
         getManyAndCount: jest.fn().mockResolvedValue([[createSampleJob()], 1]),
       };
-      jobRepo.createQueryBuilder.mockReturnValue(
-        qb as unknown as SelectQueryBuilder<Job>,
-      );
+      jobRepo.createQueryBuilder.mockReturnValue(qb);
     });
 
     it('Scope ALL cho HR thường: lọc Job của mình hoặc Job OPEN của HR khác', async () => {
@@ -308,7 +311,10 @@ describe('JobsService', () => {
   // =========================================================================
   describe('findOne', () => {
     it('Owner xem được Job DRAFT của chính mình', async () => {
-      const sample = createSampleJob({ status: JobStatus.DRAFT, ownerId: hrActor.userId });
+      const sample = createSampleJob({
+        status: JobStatus.DRAFT,
+        ownerId: hrActor.userId,
+      });
       jobRepo.findOne.mockResolvedValue(sample);
       permissionsService.hasAll.mockResolvedValue(false);
 
@@ -320,7 +326,10 @@ describe('JobsService', () => {
     });
 
     it('Owner xem được Job CLOSED của chính mình', async () => {
-      const sample = createSampleJob({ status: JobStatus.CLOSED, ownerId: hrActor.userId });
+      const sample = createSampleJob({
+        status: JobStatus.CLOSED,
+        ownerId: hrActor.userId,
+      });
       jobRepo.findOne.mockResolvedValue(sample);
       permissionsService.hasAll.mockResolvedValue(false);
 
@@ -331,7 +340,10 @@ describe('JobsService', () => {
     });
 
     it('HR khác xem được Job khi trạng thái là OPEN', async () => {
-      const sample = createSampleJob({ status: JobStatus.OPEN, ownerId: otherUserId });
+      const sample = createSampleJob({
+        status: JobStatus.OPEN,
+        ownerId: otherUserId,
+      });
       jobRepo.findOne.mockResolvedValue(sample);
       permissionsService.hasAll.mockResolvedValue(false);
 
@@ -342,7 +354,10 @@ describe('JobsService', () => {
     });
 
     it('HR khác KHÔNG xem được Job DRAFT của người khác -> Ném 404', async () => {
-      const sample = createSampleJob({ status: JobStatus.DRAFT, ownerId: otherUserId });
+      const sample = createSampleJob({
+        status: JobStatus.DRAFT,
+        ownerId: otherUserId,
+      });
       jobRepo.findOne.mockResolvedValue(sample);
       permissionsService.hasAll.mockResolvedValue(false);
 
@@ -352,7 +367,10 @@ describe('JobsService', () => {
     });
 
     it('HR khác KHÔNG xem được Job CLOSED của người khác -> Ném 404', async () => {
-      const sample = createSampleJob({ status: JobStatus.CLOSED, ownerId: otherUserId });
+      const sample = createSampleJob({
+        status: JobStatus.CLOSED,
+        ownerId: otherUserId,
+      });
       jobRepo.findOne.mockResolvedValue(sample);
       permissionsService.hasAll.mockResolvedValue(false);
 
@@ -362,7 +380,10 @@ describe('JobsService', () => {
     });
 
     it('Admin có jobs:manage xem được bất kỳ Job nào (kể cả DRAFT hay CLOSED của HR khác)', async () => {
-      const sample = createSampleJob({ status: JobStatus.DRAFT, ownerId: otherUserId });
+      const sample = createSampleJob({
+        status: JobStatus.DRAFT,
+        ownerId: otherUserId,
+      });
       jobRepo.findOne.mockResolvedValue(sample);
       permissionsService.hasAll.mockResolvedValue(true);
 
@@ -396,7 +417,7 @@ describe('JobsService', () => {
         title: '  Senior NestJS Engineer  ',
       };
 
-      const result = await service.update(hrActor, sample.id, dto as any);
+      const result = await service.update(hrActor, sample.id, dto);
 
       expect(result.version).toBe(2);
       expect(result.title).toBe('Senior NestJS Engineer');
@@ -437,7 +458,11 @@ describe('JobsService', () => {
     });
 
     it('Admin có jobs:manage có quyền sửa Job của HR khác', async () => {
-      const sample = createSampleJob({ ownerId: otherUserId, version: 1, status: JobStatus.DRAFT });
+      const sample = createSampleJob({
+        ownerId: otherUserId,
+        version: 1,
+        status: JobStatus.DRAFT,
+      });
       mockTxJobRepo.findOne.mockResolvedValue(sample);
       mockTxJobRepo.save.mockImplementation(async (j) => j);
       permissionsService.hasAll.mockResolvedValue(true);
@@ -447,21 +472,25 @@ describe('JobsService', () => {
         title: 'Admin Edited Title',
       };
 
-      const result = await service.update(adminActor, sample.id, dto as any);
+      const result = await service.update(adminActor, sample.id, dto);
 
       expect(result.title).toBe('Admin Edited Title');
     });
 
     it('HR thường không được sửa Job của người khác -> Ném 404', async () => {
-      const sample = createSampleJob({ ownerId: otherUserId, version: 1, status: JobStatus.DRAFT });
+      const sample = createSampleJob({
+        ownerId: otherUserId,
+        version: 1,
+        status: JobStatus.DRAFT,
+      });
       mockTxJobRepo.findOne.mockResolvedValue(sample);
       permissionsService.hasAll.mockResolvedValue(false);
 
       const dto = { expectedVersion: 1, title: 'Hacked' };
 
-      await expect(service.update(hrActor, sample.id, dto as any)).rejects.toThrow(
-        NotFoundException,
-      );
+      await expect(
+        service.update(hrActor, sample.id, dto as any),
+      ).rejects.toThrow(NotFoundException);
     });
 
     it('Ném VersionConflictException (409) khi expectedVersion không khớp version hiện tại', async () => {
@@ -471,9 +500,9 @@ describe('JobsService', () => {
 
       const dto = { expectedVersion: 1, title: 'Outdated' };
 
-      await expect(service.update(hrActor, sample.id, dto as any)).rejects.toThrow(
-        VersionConflictException,
-      );
+      await expect(
+        service.update(hrActor, sample.id, dto as any),
+      ).rejects.toThrow(VersionConflictException);
     });
 
     it('Ném BadRequestException nếu Job đã CLOSED', async () => {
@@ -483,9 +512,9 @@ describe('JobsService', () => {
 
       const dto = { expectedVersion: 1, title: 'Cannot edit closed' };
 
-      await expect(service.update(hrActor, sample.id, dto as any)).rejects.toThrow(
-        BadRequestException,
-      );
+      await expect(
+        service.update(hrActor, sample.id, dto as any),
+      ).rejects.toThrow(BadRequestException);
     });
 
     it('Ném BadRequestException nếu cố tình đóng Job qua PATCH (phải dùng endpoint /close)', async () => {
@@ -495,9 +524,9 @@ describe('JobsService', () => {
 
       const dto = { expectedVersion: 1, status: JobStatus.CLOSED };
 
-      await expect(service.update(hrActor, sample.id, dto as any)).rejects.toThrow(
-        BadRequestException,
-      );
+      await expect(
+        service.update(hrActor, sample.id, dto as any),
+      ).rejects.toThrow(BadRequestException);
     });
 
     it('Ném BadRequestException nếu cố tình chuyển từ OPEN về DRAFT', async () => {
@@ -507,9 +536,9 @@ describe('JobsService', () => {
 
       const dto = { expectedVersion: 1, status: JobStatus.DRAFT };
 
-      await expect(service.update(hrActor, sample.id, dto as any)).rejects.toThrow(
-        BadRequestException,
-      );
+      await expect(
+        service.update(hrActor, sample.id, dto as any),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 
@@ -523,7 +552,9 @@ describe('JobsService', () => {
       mockTxJobRepo.save.mockImplementation(async (j) => j);
       permissionsService.hasAll.mockResolvedValue(false);
 
-      const result = await service.close(hrActor, sample.id, { expectedVersion: 1 });
+      const result = await service.close(hrActor, sample.id, {
+        expectedVersion: 1,
+      });
 
       expect(result.status).toBe(JobStatus.CLOSED);
       expect(result.version).toBe(2);
@@ -544,18 +575,28 @@ describe('JobsService', () => {
     });
 
     it('Admin có jobs:manage có thể đóng Job của HR khác', async () => {
-      const sample = createSampleJob({ ownerId: otherUserId, version: 1, status: JobStatus.OPEN });
+      const sample = createSampleJob({
+        ownerId: otherUserId,
+        version: 1,
+        status: JobStatus.OPEN,
+      });
       mockTxJobRepo.findOne.mockResolvedValue(sample);
       mockTxJobRepo.save.mockImplementation(async (j) => j);
       permissionsService.hasAll.mockResolvedValue(true);
 
-      const result = await service.close(adminActor, sample.id, { expectedVersion: 1 });
+      const result = await service.close(adminActor, sample.id, {
+        expectedVersion: 1,
+      });
 
       expect(result.status).toBe(JobStatus.CLOSED);
     });
 
     it('HR thường không được đóng Job của người khác -> Ném 404', async () => {
-      const sample = createSampleJob({ ownerId: otherUserId, version: 1, status: JobStatus.OPEN });
+      const sample = createSampleJob({
+        ownerId: otherUserId,
+        version: 1,
+        status: JobStatus.OPEN,
+      });
       mockTxJobRepo.findOne.mockResolvedValue(sample);
       permissionsService.hasAll.mockResolvedValue(false);
 
@@ -611,9 +652,9 @@ describe('JobsService', () => {
     it('Ném 404 nếu Job cần xóa không tồn tại hoặc đã bị xóa trước đó', async () => {
       mockTxJobRepo.findOne.mockResolvedValue(null);
 
-      await expect(service.softDelete(adminActor, 'non-existent')).rejects.toThrow(
-        NotFoundException,
-      );
+      await expect(
+        service.softDelete(adminActor, 'non-existent'),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 });
