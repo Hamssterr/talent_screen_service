@@ -10,6 +10,8 @@ import { RolesModule } from './modules/admin/roles/roles.module';
 import { PermissionsModule } from './modules/admin/permissions/permissions.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { JobsModule } from './modules/jobs/jobs.module';
+import { CandidatesModule } from './modules/candidates/candidates.module';
+import { ApplicationsModule } from './modules/applications/applications.module';
 import { BullModule } from '@nestjs/bullmq';
 import { configuration, validateEnv } from './config';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
@@ -37,6 +39,8 @@ import { TimeModule } from './platform/time/time.module';
     PermissionsModule,
     AdminModule,
     JobsModule,
+    CandidatesModule,
+    ApplicationsModule,
     BullModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

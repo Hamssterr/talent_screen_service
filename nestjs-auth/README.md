@@ -127,6 +127,33 @@ Quy tắc chính:
 - **Audit Logging**: Mọi thao tác tạo, sửa, mở, đóng và xóa Job đều được ghi nhận vào bảng `audit_logs` trong cùng database transaction.
 - **Soft Delete**: Xóa Job sử dụng `deletedAt`, không hard delete dữ liệu.
 
+## API Quản lý Ứng viên (Candidates Module)
+
+| Method | Endpoint                                              | Permission          | Người được sử dụng                          |
+| ------ | ----------------------------------------------------- | ------------------- | ------------------------------------------- |
+| POST   | `/api/v1/candidates`                                  | `candidates:create` | Admin, HR (Email unique trong owner scope)  |
+| GET    | `/api/v1/candidates?page=1&limit=10&search=keyword`   | `candidates:read`   | Admin, HR (HR chỉ thấy Candidate của mình)  |
+| GET    | `/api/v1/candidates/:id`                              | `candidates:read`   | Admin, HR (HR chỉ thấy Candidate của mình)  |
+| PATCH  | `/api/v1/candidates/:id`                              | `candidates:update` | Admin, HR (HR chỉ sửa Candidate của mình)   |
+| DELETE | `/api/v1/candidates/:id`                              | `candidates:manage` | Chỉ Admin có quyền `candidates:manage`      |
+
+## API Quản lý Hồ sơ Ứng tuyển (Applications Module)
+
+| Method | Endpoint                                                    | Permission              | Người được sử dụng                                  |
+| ------ | ----------------------------------------------------------- | ----------------------- | --------------------------------------------------- |
+| POST   | `/api/v1/applications` (Header: `Idempotency-Key`)          | `applications:create`   | Admin, HR (Nộp ứng viên vào Job draft/open)         |
+| GET    | `/api/v1/applications?page=1&limit=10&scope=all&status=...`| `applications:read`     | Admin, Application owner, Job owner (read-only)     |
+| GET    | `/api/v1/applications/:id`                                  | `applications:read`     | Admin, Application owner, Job owner (read-only)     |
+| PATCH  | `/api/v1/applications/:id` (Body: `expectedVersion`)        | `applications:update`   | Admin, Application owner, Job owner                 |
+| POST   | `/api/v1/applications/:id/withdraw`                         | `applications:withdraw` | Admin, Application owner                            |
+| DELETE | `/api/v1/applications/:id`                                  | `applications:manage`   | Chỉ Admin có quyền `applications:manage`            |
+
+Quy tắc chính:
+- **Idempotency**: Tạo Application bắt buộc header `Idempotency-Key`.
+- **Visibility**: Scope `mine` (hồ sơ do HR tạo), `job-owned` (hồ sơ nộp vào Job do HR sở hữu), `all` (kết hợp cả hai). Admin có `applications:manage` thấy mọi Application.
+- **Optimistic Concurrency**: Update notes và Withdraw bắt buộc `expectedVersion`. Withdraw là idempotent nếu đã ở trạng thái `withdrawn`.
+- **Soft Delete Validation**: Không cho xóa Candidate nếu còn Application đang active (`409 CANDIDATE_HAS_APPLICATIONS`).
+
 ## Nền tảng dùng chung (Platform Foundation)
 
 - **Response Envelope**: Thống nhất `{ message, data, meta? }`.
@@ -145,4 +172,4 @@ npm run build
 npm run lint
 ```
 
-Tài liệu thiết kế chi tiết nằm trong `docs/todo/00-baseline-auth-admin.md`, `docs/todo/01-platform-foundation.md` và `docs/todo/02-jobs.md`.
+Tài liệu thiết kế chi tiết nằm trong `docs/todo/00-baseline-auth-admin.md`, `docs/todo/01-platform-foundation.md`, `docs/todo/02-jobs.md` và `docs/todo/03-candidates-applications.md`.
