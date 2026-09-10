@@ -174,6 +174,24 @@ Quy tắc chính:
 - **Profile Schema `profile.v1`**: Chuẩn hóa cấu trúc profile thủ công (`summary`, `skills`, `experiences`, `projects`, `education`, `missingInformation`) làm nền tảng cho Todo 05 và Todo 09.
 - **Idempotency & Cleanup**: Upload CV bắt buộc header `Idempotency-Key` (hash canonical gồm applicationId, file sha256, sanitized filename, sizeBytes). Nếu DB transaction thất bại, file orphan trong storage được cleanup tự động.
 
+## API Quản lý Bộ Câu hỏi Phỏng vấn (Question Sets Module)
+
+| Method | Endpoint | Permission | Người được sử dụng |
+| ------ | -------- | ---------- | ------------------ |
+| POST   | `/api/v1/applications/:applicationId/question-sets` (Body: `cvVersionId`, `language`) | `question-sets:create` | Admin, Application owner (khi Application `shortlisted` & CV profile `approved`) |
+| GET    | `/api/v1/applications/:applicationId/question-sets?page=1&limit=10` | `question-sets:read` | Admin, Application owner, Job owner (read-only) |
+| GET    | `/api/v1/question-sets/:id` | `question-sets:read` | Admin, Application owner, Job owner (read-only) |
+| PUT    | `/api/v1/question-sets/:id/items` (Body: `expectedVersion`, `items[]`) | `question-sets:update` | Admin, Application owner (atomic replace/reorder khi `draft`) |
+| POST   | `/api/v1/question-sets/:id/approve` (Body: `expectedVersion`) | `question-sets:approve` | Admin, Application owner (kiểm tra không stale, bất biến sau duyệt) |
+| POST   | `/api/v1/question-sets/:id/clone` | `question-sets:create` | Admin, Application owner (nhân bản sang draft mới độc lập) |
+| DELETE | `/api/v1/question-sets/:id` | `question-sets:manage` | Chỉ Admin có quyền `question-sets:manage` (soft delete) |
+
+Quy tắc chính:
+- **Snapshots & Stale Check**: Chụp snapshot an toàn của `cvVersion.profileJson` và Job specification (`jobId`, `title`, `description`, `requiredSkills`, `evaluationCriteria`, `version`). Bộ câu hỏi tự động phát hiện `isStale` nếu CV hoặc Job có phiên bản mới hơn; bộ câu hỏi bị stale sẽ bị chặn không cho approve.
+- **Manual Questions First**: Hỗ trợ khởi tạo bộ câu hỏi thủ công (mode=`manual`, status=`draft`), 1 đến 12 câu, vị trí `position` 1..N liên tục không ngắt quãng, liên kết với `evaluationCriterionId` của Job.
+- **Optimistic Concurrency & Immutability**: Cập nhật câu hỏi và phê duyệt bắt buộc gửi kèm `expectedVersion`. Bộ câu hỏi sau khi `approved` là bất biến (immutable); nếu muốn sửa đổi phải gọi API `clone` để tạo draft mới.
+- **Application Status**: Việc tạo và approve Question Set không làm thay đổi trạng thái của Application (vẫn giữ nguyên `shortlisted`).
+
 ## Nền tảng dùng chung (Platform Foundation)
 
 - **Response Envelope**: Thống nhất `{ message, data, meta? }`.
