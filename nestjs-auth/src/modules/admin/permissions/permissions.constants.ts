@@ -34,6 +34,11 @@ export const Permissions = {
   CvUpdateProfile: 'cv:update-profile',
   CvApproveProfile: 'cv:approve-profile',
   CvManage: 'cv:manage',
+  QuestionSetsRead: 'question-sets:read',
+  QuestionSetsCreate: 'question-sets:create',
+  QuestionSetsUpdate: 'question-sets:update',
+  QuestionSetsApprove: 'question-sets:approve',
+  QuestionSetsManage: 'question-sets:manage',
 } as const;
 
 export type PermissionKey = (typeof Permissions)[keyof typeof Permissions];

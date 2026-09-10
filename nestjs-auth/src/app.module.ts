@@ -13,6 +13,7 @@ import { JobsModule } from './modules/jobs/jobs.module';
 import { CandidatesModule } from './modules/candidates/candidates.module';
 import { ApplicationsModule } from './modules/applications/applications.module';
 import { DocumentsModule } from './modules/documents/documents.module';
+import { QuestionSetsModule } from './modules/question-sets/question-sets.module';
 import { StorageModule } from './platform/storage/storage.module';
 import { BullModule } from '@nestjs/bullmq';
 import { configuration, validateEnv } from './config';
@@ -45,6 +46,7 @@ import { TimeModule } from './platform/time/time.module';
     CandidatesModule,
     ApplicationsModule,
     DocumentsModule,
+    QuestionSetsModule,
     BullModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
