@@ -154,6 +154,26 @@ Quy tắc chính:
 - **Optimistic Concurrency**: Update notes và Withdraw bắt buộc `expectedVersion`. Withdraw là idempotent nếu đã ở trạng thái `withdrawn`.
 - **Soft Delete Validation**: Không cho xóa Candidate nếu còn Application đang active (`409 CANDIDATE_HAS_APPLICATIONS`).
 
+## API Quản lý Tài liệu & Phiên bản CV (Documents & CV Versions Module)
+
+| Method | Endpoint | Permission | Người được sử dụng |
+| ------ | -------- | ---------- | ------------------ |
+| POST   | `/api/v1/applications/:applicationId/cv-versions` (Header: `Idempotency-Key`, Multipart: `file`) | `cv:upload` | Admin, Application owner (khi Application `shortlisted`) |
+| GET    | `/api/v1/applications/:applicationId/cv-versions?page=1&limit=10` | `cv:read` | Admin, Application owner, Job owner (read-only) |
+| GET    | `/api/v1/cv-versions/:id` | `cv:read` | Admin, Application owner, Job owner (read-only) |
+| GET    | `/api/v1/cv-versions/:id/download` | `cv:download` | Admin, Application owner, Job owner (Stream binary PDF) |
+| PATCH  | `/api/v1/cv-versions/:id/profile` (Body: `expectedProfileVersion`, `profile`) | `cv:update-profile` | Admin, Application owner (chỉ khi profile `draft`) |
+| POST   | `/api/v1/cv-versions/:id/approve-profile` (Body: `expectedProfileVersion`) | `cv:approve-profile` | Admin, Application owner (immutable sau duyệt) |
+| DELETE | `/api/v1/cv-versions/:id` | `cv:manage` | Chỉ Admin có quyền `cv:manage` (soft delete) |
+
+Quy tắc chính:
+- **Storage Drivers**: Hỗ trợ driver `local` (thư mục private `./data/private-documents`) và `cloudinary` (signed authenticated/raw asset). File nhị phân không lưu trong PostgreSQL.
+- **Lưu ý Cloudinary Free**: Trên Cloudinary Product Environment (Free), người vận hành cần bật **"Allow delivery of PDF and ZIP files"** trong phần *Settings → Security* để backend tải được file PDF qua authenticated URL.
+- **Application Current Pointer**: Mỗi lần upload CV mới tạo một `CvVersion` mới (version tự tăng), cập nhật `Application.currentCvVersionId` và tăng `Application.version` trong cùng database transaction.
+- **Ownership & State Restriction**: Chỉ thao tác upload/sửa profile/duyệt profile khi Application ở trạng thái `shortlisted`. Job owner chỉ có quyền đọc/tải CV ở chế độ read-only.
+- **Profile Schema `profile.v1`**: Chuẩn hóa cấu trúc profile thủ công (`summary`, `skills`, `experiences`, `projects`, `education`, `missingInformation`) làm nền tảng cho Todo 05 và Todo 09.
+- **Idempotency & Cleanup**: Upload CV bắt buộc header `Idempotency-Key` (hash canonical gồm applicationId, file sha256, sanitized filename, sizeBytes). Nếu DB transaction thất bại, file orphan trong storage được cleanup tự động.
+
 ## Nền tảng dùng chung (Platform Foundation)
 
 - **Response Envelope**: Thống nhất `{ message, data, meta? }`.
@@ -172,4 +192,4 @@ npm run build
 npm run lint
 ```
 
-Tài liệu thiết kế chi tiết nằm trong `docs/todo/00-baseline-auth-admin.md`, `docs/todo/01-platform-foundation.md`, `docs/todo/02-jobs.md` và `docs/todo/03-candidates-applications.md`.
+Tài liệu thiết kế chi tiết nằm trong `docs/todo/00-baseline-auth-admin.md`, `docs/todo/01-platform-foundation.md`, `docs/todo/02-jobs.md`, `docs/todo/03-candidates-applications.md` và `docs/todo/04-documents-cv.md`.

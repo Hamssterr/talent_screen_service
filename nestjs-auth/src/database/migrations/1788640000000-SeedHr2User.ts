@@ -12,14 +12,14 @@ export class SeedHr2User1788640000000 implements MigrationInterface {
     const hrRoleId = '00000000-0000-4000-8000-000000000002'; // ID cố định của role 'hr'
 
     // 1. Thêm user hr2@gmail.com vào bảng users (nếu chưa tồn tại)
-    const insertUserResult: Array<{ id: string }> = await queryRunner.query(
+    const insertUserResult = (await queryRunner.query(
       `INSERT INTO "users" ("email", "name", "passwordHash", "status")
        VALUES ($1, $2, $3, 'active')
        ON CONFLICT ("email") DO UPDATE 
        SET "passwordHash" = EXCLUDED."passwordHash", "status" = 'active'
        RETURNING "id"`,
       [email, name, passwordHash],
-    );
+    )) as Array<{ id: string }>;
 
     const userId = insertUserResult[0]?.id;
 
@@ -38,10 +38,10 @@ export class SeedHr2User1788640000000 implements MigrationInterface {
     const email = 'hr2@gmail.com';
 
     // 1. Lấy id của user
-    const users: Array<{ id: string }> = await queryRunner.query(
+    const users = (await queryRunner.query(
       `SELECT "id" FROM "users" WHERE "email" = $1`,
       [email],
-    );
+    )) as Array<{ id: string }>;
 
     if (users.length > 0) {
       const userId = users[0].id;
