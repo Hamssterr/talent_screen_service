@@ -46,6 +46,10 @@ export class Application {
   @Column({ name: 'current_cv_version_id', type: 'uuid', nullable: true })
   currentCvVersionId: string | null;
 
+  @ManyToOne('CvVersion', { nullable: true, onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'current_cv_version_id' })
+  currentCvVersion?: unknown;
+
   @Column({
     type: 'enum',
     enum: ApplicationStatus,

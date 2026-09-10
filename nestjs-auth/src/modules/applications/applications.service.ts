@@ -321,8 +321,6 @@ export class ApplicationsService {
       const application = await appRepo
         .createQueryBuilder('app')
         .setLock('pessimistic_write')
-        .leftJoinAndSelect('app.candidate', 'candidate')
-        .leftJoinAndSelect('app.job', 'job')
         .where('app.id = :id', { id })
         .andWhere('app.deletedAt IS NULL')
         .getOne();
@@ -333,6 +331,11 @@ export class ApplicationsService {
           message: 'Không tìm thấy hồ sơ ứng tuyển để cập nhật',
         });
       }
+
+      const job = await manager.getRepository(Job).findOne({
+        where: { id: application.jobId },
+      });
+      application.job = job ?? undefined;
 
       const isAppAdmin = await this.permissionsService.hasAll(actor.userId, [
         Permissions.ApplicationsManage,
@@ -398,8 +401,6 @@ export class ApplicationsService {
       const application = await appRepo
         .createQueryBuilder('app')
         .setLock('pessimistic_write')
-        .leftJoinAndSelect('app.candidate', 'candidate')
-        .leftJoinAndSelect('app.job', 'job')
         .where('app.id = :id', { id })
         .andWhere('app.deletedAt IS NULL')
         .getOne();
@@ -410,6 +411,11 @@ export class ApplicationsService {
           message: 'Không tìm thấy hồ sơ ứng tuyển để rút',
         });
       }
+
+      const job = await manager.getRepository(Job).findOne({
+        where: { id: application.jobId },
+      });
+      application.job = job ?? undefined;
 
       const isAppAdmin = await this.permissionsService.hasAll(actor.userId, [
         Permissions.ApplicationsManage,

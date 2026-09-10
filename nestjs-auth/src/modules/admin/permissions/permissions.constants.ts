@@ -28,6 +28,12 @@ export const Permissions = {
   ApplicationsUpdate: 'applications:update',
   ApplicationsWithdraw: 'applications:withdraw',
   ApplicationsManage: 'applications:manage',
+  CvRead: 'cv:read',
+  CvUpload: 'cv:upload',
+  CvDownload: 'cv:download',
+  CvUpdateProfile: 'cv:update-profile',
+  CvApproveProfile: 'cv:approve-profile',
+  CvManage: 'cv:manage',
 } as const;
 
 export type PermissionKey = (typeof Permissions)[keyof typeof Permissions];

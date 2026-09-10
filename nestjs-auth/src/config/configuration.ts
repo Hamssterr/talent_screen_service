@@ -30,4 +30,21 @@ export default () => ({
       process.env.MAIL_USER ||
       'noreply@talentscreen.com',
   },
+  storage: {
+    driver: process.env.DOCUMENT_STORAGE_DRIVER || 'local',
+    local: {
+      root:
+        process.env.DOCUMENT_STORAGE_LOCAL_ROOT || './data/private-documents',
+    },
+    cloudinary: {
+      cloudName: process.env.CLOUDINARY_CLOUD_NAME || '',
+      apiKey: process.env.CLOUDINARY_API_KEY || '',
+      apiSecret: process.env.CLOUDINARY_API_SECRET || '',
+      folder: process.env.CLOUDINARY_FOLDER || 'talent-screen/cv',
+    },
+    maxFileSizeBytes: parseInt(
+      process.env.CV_MAX_FILE_SIZE_BYTES || '10485760',
+      10,
+    ),
+  },
 });
