@@ -47,4 +47,14 @@ export default () => ({
       10,
     ),
   },
+  notifications: {
+    cryptoKey:
+      process.env.NOTIFICATION_PAYLOAD_CRYPTO_KEY ||
+      process.env.JWT_ACCESS_SECRET ||
+      'default-32-chars-long-secure-key-12345',
+    payloadTtlMinutes: parseInt(
+      process.env.NOTIFICATION_PAYLOAD_TTL_MINUTES || '10080',
+      10,
+    ), // 7 days
+  },
 });

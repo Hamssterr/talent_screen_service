@@ -454,8 +454,10 @@ export class QuestionSetsService {
       await itemRepo.delete({ questionSetId: questionSet.id });
 
       // Tạo các items mới
-      const newItems = sortedItems.map((item) =>
-        itemRepo.create({
+      const newItems = sortedItems.map((item) => {
+        const allowFollowUp = item.allowFollowUp ?? true;
+        const maxFollowUps = allowFollowUp ? (item.maxFollowUps ?? 1) : 0;
+        return itemRepo.create({
           questionSetId: questionSet.id,
           position: item.position,
           text: item.text.trim(),
@@ -463,12 +465,12 @@ export class QuestionSetsService {
           competency: item.competency?.trim() || null,
           evaluationCriterionId: item.evaluationCriterionId || null,
           difficulty: item.difficulty || QuestionDifficulty.INTERMEDIATE,
-          allowFollowUp: item.allowFollowUp ?? true,
-          maxFollowUps: item.maxFollowUps ?? 1,
+          allowFollowUp,
+          maxFollowUps,
           evidenceRefs: item.evidenceRefs || null,
           reviewNotes: item.reviewNotes?.trim() || null,
-        }),
-      );
+        });
+      });
 
       const savedItems = await itemRepo.save(newItems);
 
@@ -495,7 +497,24 @@ export class QuestionSetsService {
         manager,
       );
 
-      return this.mapToDetailDto(updatedSet, savedItems, false);
+      // Tính toán isStale theo dữ liệu thực tế
+      const app = await manager.getRepository(Application).findOne({
+        where: { id: updatedSet.applicationId },
+      });
+      const currentCv = app?.currentCvVersionId
+        ? await manager.getRepository(CvVersion).findOne({
+            where: { id: app.currentCvVersionId },
+          })
+        : null;
+      const job = app
+        ? await manager.getRepository(Job).findOne({ where: { id: app.jobId } })
+        : null;
+
+      const isStale = app
+        ? this.checkIfStale(updatedSet, app, currentCv, job)
+        : true;
+
+      return this.mapToDetailDto(updatedSet, savedItems, isStale);
     });
   }
 
@@ -568,6 +587,14 @@ export class QuestionSetsService {
         throw new NotFoundException({
           code: ErrorCodes.APPLICATION_NOT_FOUND,
           message: 'Hồ sơ ứng tuyển không tồn tại',
+        });
+      }
+
+      if (application.status !== ApplicationStatus.SHORTLISTED) {
+        throw new ConflictException({
+          code: ErrorCodes.APPLICATION_STATE_CONFLICT,
+          message:
+            'Chỉ có thể phê duyệt bộ câu hỏi cho hồ sơ ở trạng thái shortlisted',
         });
       }
 
@@ -760,7 +787,24 @@ export class QuestionSetsService {
         manager,
       );
 
-      return this.mapToDetailDto(savedSet, savedItems, false);
+      // Tính toán isStale theo dữ liệu thực tế
+      const app = await manager.getRepository(Application).findOne({
+        where: { id: savedSet.applicationId },
+      });
+      const currentCv = app?.currentCvVersionId
+        ? await manager.getRepository(CvVersion).findOne({
+            where: { id: app.currentCvVersionId },
+          })
+        : null;
+      const job = app
+        ? await manager.getRepository(Job).findOne({ where: { id: app.jobId } })
+        : null;
+
+      const isStale = app
+        ? this.checkIfStale(savedSet, app, currentCv, job)
+        : true;
+
+      return this.mapToDetailDto(savedSet, savedItems, isStale);
     });
   }
 
@@ -799,30 +843,32 @@ export class QuestionSetsService {
   /**
    * Kiểm tra xem Question Set có bị cũ (stale) so với Application / CV / Job không
    */
-  private checkIfStale(
+  public checkIfStale(
     questionSet: QuestionSet,
     application: Application,
     currentCvVersion: CvVersion | null,
     job: Job | null,
   ): boolean {
-    // 1. Application CV version đã thay đổi
-    if (
-      application.currentCvVersionId &&
-      application.currentCvVersionId !== questionSet.cvVersionId
-    ) {
+    // 0. Nếu không có CV version hoặc không có Job, được xem là stale
+    if (!application.currentCvVersionId || !currentCvVersion || !job) {
       return true;
     }
 
-    // 2. CV profileVersion đã thay đổi
+    // 1. Application CV version đã thay đổi
+    if (application.currentCvVersionId !== questionSet.cvVersionId) {
+      return true;
+    }
+
+    // 2. CV profileVersion đã thay đổi hoặc CV profile chưa approved
     if (
-      currentCvVersion &&
+      currentCvVersion.profileStatus !== CvProfileStatus.APPROVED ||
       currentCvVersion.profileVersion !== questionSet.cvProfileVersion
     ) {
       return true;
     }
 
     // 3. Job version đã thay đổi
-    if (job && job.version !== questionSet.jobVersion) {
+    if (job.version !== questionSet.jobVersion) {
       return true;
     }
 

@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, In, IsNull, Repository } from 'typeorm';
 import { Application } from './entities/application.entity';
 import { ApplicationStatus } from './enums/application-status.enum';
 import { ApplicationListScope } from './enums/application-list-scope.enum';
@@ -20,6 +20,16 @@ import { Job } from '../jobs/entities/job.entity';
 import { JobStatus } from '../jobs/enums/job-status.enum';
 import { PermissionsService } from '../admin/permissions/permissions.service';
 import { Permissions } from '../admin/permissions/permissions.constants';
+import { Interview } from '../interviews/entities/interview.entity';
+import { InterviewStatus } from '../interviews/enums/interview-status.enum';
+import { Invitation } from '../interviews/entities/invitation.entity';
+import { InterviewAccessCredential } from '../interviews/entities/interview-access-credential.entity';
+import { InterviewSession } from '../interview-runtime/entities/interview-session.entity';
+import { InterviewTurn } from '../interview-runtime/entities/interview-turn.entity';
+import { SessionStatus } from '../interview-runtime/enums/session-status.enum';
+import { RuntimeState } from '../interview-runtime/enums/runtime-state.enum';
+import { SessionEndReason } from '../interview-runtime/enums/session-end-reason.enum';
+import { TurnStatus } from '../interview-runtime/enums/turn-status.enum';
 import { AuditService } from '../../platform/audit/audit.service';
 import { IdempotencyService } from '../../platform/idempotency/idempotency.service';
 import { ActorContext } from '../../common/context/actor-context';
@@ -456,9 +466,96 @@ export class ApplicationsService {
         });
       }
 
+      const now = new Date();
+
+      // Nếu có Interview đang mở (invited hoặc in_progress), hủy phỏng vấn và thu hồi lời mời
+      const interviewRepo = manager.getRepository(Interview);
+      const invRepo = manager.getRepository(Invitation);
+      const credRepo = manager.getRepository(InterviewAccessCredential);
+
+      const openInterviews = await interviewRepo.find({
+        where: {
+          applicationId: application.id,
+          status: In([InterviewStatus.INVITED, InterviewStatus.IN_PROGRESS]),
+        },
+      });
+
+      for (const interview of openInterviews) {
+        interview.status = InterviewStatus.CANCELLED;
+        interview.cancelReason =
+          dto.reason?.trim() || 'Ứng viên rút hồ sơ ứng tuyển';
+        interview.cancelledAt = now;
+        interview.version += 1;
+        interview.invitationVersion += 1;
+        await interviewRepo.save(interview);
+
+        // Đóng session nếu đang chạy
+        const sessionRepo = manager.getRepository(InterviewSession);
+        const turnRepo = manager.getRepository(InterviewTurn);
+        const runningSession = await sessionRepo.findOne({
+          where: { interviewId: interview.id },
+        });
+
+        if (
+          runningSession &&
+          runningSession.status === SessionStatus.IN_PROGRESS
+        ) {
+          if (runningSession.currentTurnId) {
+            await turnRepo.update(
+              { id: runningSession.currentTurnId, status: TurnStatus.OPEN },
+              { status: TurnStatus.CLOSED_UNANSWERED, closedAt: now },
+            );
+          }
+          await sessionRepo.update(
+            { id: runningSession.id },
+            {
+              status: SessionStatus.CANCELLED,
+              runtimeState: RuntimeState.CLOSED,
+              endedAt: now,
+              endReason: SessionEndReason.HR_CANCELLED,
+              currentTurnId: null,
+              version: runningSession.version + 1,
+            },
+          );
+        }
+
+        const invitations = await invRepo.find({
+          where: { interviewId: interview.id },
+        });
+
+        for (const inv of invitations) {
+          if (!inv.revokedAt) {
+            inv.revokedAt = now;
+            await invRepo.save(inv);
+
+            await credRepo.update(
+              { invitationId: inv.id, revokedAt: IsNull() },
+              { revokedAt: now },
+            );
+          }
+        }
+
+        await this.auditService.record(
+          {
+            actorId: actor.userId,
+            actorType: 'user',
+            action: 'interview.revoked',
+            targetType: 'interview',
+            targetId: interview.id,
+            ownerId: interview.ownerId,
+            metadata: {
+              reason: interview.cancelReason,
+              trigger: 'application_withdraw',
+            },
+            requestId: actor.requestId,
+          },
+          manager,
+        );
+      }
+
       application.status = ApplicationStatus.WITHDRAWN;
       application.withdrawReason = dto.reason?.trim() || null;
-      application.withdrawnAt = new Date();
+      application.withdrawnAt = now;
       application.version += 1;
 
       const saved = await appRepo.save(application);

@@ -119,6 +119,89 @@ export class MailService {
   }
 
   /**
+   * Gửi email mời phỏng vấn cho Candidate (URL fragment #token=...)
+   */
+  async sendInterviewInvitation(data: {
+    email: string;
+    candidateName?: string;
+    jobTitle: string;
+    durationMinutes: number;
+    invitationExpiresAt: Date;
+    invitationUrl: string;
+  }) {
+    const formattedExpiry = new Date(data.invitationExpiresAt).toLocaleString(
+      'vi-VN',
+      { timeZone: 'Asia/Ho_Chi_Minh' },
+    );
+    const content = `
+      <p>Bạn nhận được lời mời tham gia buổi phỏng vấn trực tuyến cho vị trí <strong>${escapeHtml(data.jobTitle)}</strong>.</p>
+      <div style="background-color: #f8f9fa; border-left: 4px solid #28a745; padding: 15px; margin: 20px 0;">
+        <p style="margin: 0 0 8px 0;"><strong>Vị trí ứng tuyển:</strong> ${escapeHtml(data.jobTitle)}</p>
+        <p style="margin: 0 0 8px 0;"><strong>Thời lượng làm bài:</strong> ${data.durationMinutes} phút</p>
+        <p style="margin: 0;"><strong>Hạn chót truy cập:</strong> ${formattedExpiry} (Giờ Việt Nam)</p>
+      </div>
+      <p>Cuộc phỏng vấn hoàn toàn trực tuyến và bạn có thể chủ động lựa chọn thời điểm thích hợp để bắt đầu trước khi hết hạn.</p>
+      <p style="margin: 25px 0; text-align: center;">
+        <a href="${data.invitationUrl}" style="padding: 12px 25px; background-color: #007bff; color: white; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">
+          Truy cập phòng chờ phỏng vấn
+        </a>
+      </p>
+      <p style="font-size: 13px; color: #666;"><em>Lưu ý: Thời gian làm bài chỉ bắt đầu tính sau khi bạn đã đọc kỹ hướng dẫn trong phòng chờ và nhấn nút "Bắt đầu làm bài".</em></p>
+    `;
+
+    try {
+      await this.mailerService.sendMail({
+        to: data.email,
+        subject: `[TalentScreen] Thư mời phỏng vấn - Vị trí ${data.jobTitle}`,
+        html: this.buildHtmlTemplate(data.candidateName, data.email, content),
+      });
+      this.logger.log(`Email mời phỏng vấn đã gửi tới ${data.email}`);
+    } catch (error) {
+      this.logger.error(
+        `Lỗi khi gửi email mời phỏng vấn tới ${data.email}`,
+        error instanceof Error ? error.stack : error,
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Gửi email thông báo hủy phỏng vấn cho Candidate
+   */
+  async sendInterviewCancelled(data: {
+    email: string;
+    candidateName?: string;
+    jobTitle: string;
+    reason?: string;
+  }) {
+    const reasonText = data.reason
+      ? escapeHtml(data.reason)
+      : 'Kế hoạch tuyển dụng thay đổi';
+    const content = `
+      <p>Chúng tôi gửi thư này để thông báo rằng lời mời phỏng vấn cho vị trí <strong>${escapeHtml(data.jobTitle)}</strong> đã bị hủy.</p>
+      <div style="background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0;">
+        <p style="margin: 0;"><strong>Lý do:</strong> ${reasonText}</p>
+      </div>
+      <p>Nếu bạn có bất kỳ thắc mắc nào, vui lòng liên hệ với bộ phận tuyển dụng.</p>
+    `;
+
+    try {
+      await this.mailerService.sendMail({
+        to: data.email,
+        subject: `[TalentScreen] Thông báo hủy lịch phỏng vấn - Vị trí ${data.jobTitle}`,
+        html: this.buildHtmlTemplate(data.candidateName, data.email, content),
+      });
+      this.logger.log(`Email hủy phỏng vấn đã gửi tới ${data.email}`);
+    } catch (error) {
+      this.logger.error(
+        `Lỗi khi gửi email hủy phỏng vấn tới ${data.email}`,
+        error instanceof Error ? error.stack : error,
+      );
+      throw error;
+    }
+  }
+
+  /**
    * Tạo giao diện HTML chung cho các email của hệ thống.
    */
   private buildHtmlTemplate(

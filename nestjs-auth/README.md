@@ -192,6 +192,32 @@ Quy tắc chính:
 - **Optimistic Concurrency & Immutability**: Cập nhật câu hỏi và phê duyệt bắt buộc gửi kèm `expectedVersion`. Bộ câu hỏi sau khi `approved` là bất biến (immutable); nếu muốn sửa đổi phải gọi API `clone` để tạo draft mới.
 - **Application Status**: Việc tạo và approve Question Set không làm thay đổi trạng thái của Application (vẫn giữ nguyên `shortlisted`).
 
+## API Quản lý Phỏng vấn & Lời mời (Interviews & Invitations Module)
+
+| Method | Endpoint | Permission | Người được sử dụng |
+| ------ | -------- | ---------- | ------------------ |
+| POST   | `/api/v1/applications/:applicationId/interviews` (Header: `Idempotency-Key`, Body: `questionSetId`, `invitationExpiresAt`, `durationMinutes`, `maxFollowUpsTotal`, `expectedApplicationVersion`) | `interviews:create` / `interviews:manage` | Admin, Application owner (khi Application `shortlisted`, Job `open`, Question Set `approved` không stale) |
+| GET    | `/api/v1/interviews?page=1&limit=20&status=...&scope=all` | `interviews:read` / `interviews:manage` | Admin, Application owner, Job owner (read-only) |
+| GET    | `/api/v1/interviews/:id` | `interviews:read` / `interviews:manage` | Admin, Application owner, Job owner (read-only) |
+| POST   | `/api/v1/interviews/:id/revoke` (Body: `expectedVersion`, `reason`, `notifyCandidate`) | `interviews:revoke` / `interviews:manage` | Admin, Application owner (khi Interview `invited`) |
+| POST   | `/api/v1/interviews/:id/resend-invitation` (Body: `expectedVersion`, `invitationExpiresAt?`) | `interviews:resend` / `interviews:manage` | Admin, Application owner (khi Interview `invited` và chưa hết hạn) |
+| GET    | `/api/v1/interviews/:id/notifications?page=1&limit=20` | `interviews:read` / `interviews:manage` | Admin, Application owner, Job owner (xem lịch sử gửi email) |
+| POST   | `/api/v1/notifications/:id/retry` | `interviews:resend` / `interviews:manage` | Admin, Application owner (thử gửi lại khi pending/failed/unknown) |
+
+## API Dành cho Ứng viên (Candidate Public Access)
+
+| Method | Endpoint | Authentication | Mô tả |
+| ------ | -------- | -------------- | ----- |
+| POST   | `/api/v1/candidate/invitation-exchange` (Body: `token`) | Public (Không cần tài khoản) | Đổi token từ URL fragment `#token=...` trong email lấy HttpOnly cookie `interview_access` |
+| GET    | `/api/v1/candidate/interview` | Cookie `interview_access` | Xem phòng chờ (Lobby) chỉ đọc trước khi bắt đầu bài thi (Không bắt đầu tính giờ, không tạo session, không xem câu hỏi) |
+
+Quy tắc chính:
+- **Tự động chuyển trạng thái Application**: Khi tạo Interview thành công, Application chuyển từ `shortlisted` sang `interviewing` (tăng `Application.version`). Khi thu hồi (revoke), Application quay về `shortlisted` (tăng `Application.version`).
+- **Rút hồ sơ an toàn (Withdraw Integration)**: Khi rút hồ sơ (withdraw), nếu Application có buổi phỏng vấn đang mở (`invited` hoặc `in_progress`), hệ thống sẽ tự động hủy (`cancelled`) và thu hồi mọi token/cookie liên quan trong cùng database transaction.
+- **Bảo mật Token & Cookie**: Raw token được tạo bằng CSPRNG (32 bytes entropy), mã hóa URL base64url, hash SHA-256 trước khi lưu database. Candidate truy cập phòng chờ qua HttpOnly cookie với Scope hẹp (`/api/v1/candidate`). Không trả raw token trong bất kỳ API response nào.
+- **Mã hóa Payload Email (AES-256-GCM)**: Dữ liệu link thư mời chứa raw token được mã hóa tạm thời bằng AES-256-GCM trong bảng `notifications`. Sau khi SMTP gửi thành công (status chuyển sang `accepted`), payload mã hóa sẽ được xóa sạch khỏi cơ sở dữ liệu.
+- **Xử lý Hết hạn (Expiry)**: Quá trình exchange token sử dụng đồng hồ server. Nếu lời mời đã quá hạn `invitationExpiresAt`, hệ thống từ chối cấp cookie (`401 INVITATION_UNAVAILABLE`).
+
 ## Nền tảng dùng chung (Platform Foundation)
 
 - **Response Envelope**: Thống nhất `{ message, data, meta? }`.
