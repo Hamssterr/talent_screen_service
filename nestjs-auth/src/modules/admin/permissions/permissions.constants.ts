@@ -39,6 +39,11 @@ export const Permissions = {
   QuestionSetsUpdate: 'question-sets:update',
   QuestionSetsApprove: 'question-sets:approve',
   QuestionSetsManage: 'question-sets:manage',
+  InterviewsRead: 'interviews:read',
+  InterviewsCreate: 'interviews:create',
+  InterviewsRevoke: 'interviews:revoke',
+  InterviewsResend: 'interviews:resend',
+  InterviewsManage: 'interviews:manage',
 } as const;
 
 export type PermissionKey = (typeof Permissions)[keyof typeof Permissions];
