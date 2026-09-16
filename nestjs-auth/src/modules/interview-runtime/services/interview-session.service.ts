@@ -12,6 +12,8 @@ import { DataSource, EntityManager, Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { InterviewSession } from '../entities/interview-session.entity';
 import { Interview } from '../../interviews/entities/interview.entity';
+import { Application } from '../../applications/entities/application.entity';
+import { ApplicationStatus } from '../../applications/enums/application-status.enum';
 import { InterviewQuestion } from '../../interviews/entities/interview-question.entity';
 import { InterviewAccessCredential } from '../../interviews/entities/interview-access-credential.entity';
 import { InvitationTokenService } from '../../interviews/services/invitation-token.service';
@@ -232,6 +234,37 @@ export class InterviewSessionService {
 
           // Kiểm tra invitation_expires_at: phải còn hạn để start
           if (dbNow > lockedInterview.invitationExpiresAt) {
+            // Lazy reconcile Interview & Application
+            lockedInterview.status = InterviewStatus.EXPIRED;
+            lockedInterview.version += 1;
+            await interviewRepo.save(lockedInterview);
+
+            const appRepo = manager.getRepository(Application);
+            const app = await appRepo.findOne({
+              where: { id: lockedInterview.applicationId },
+            });
+            if (app && app.status === ApplicationStatus.INTERVIEWING) {
+              app.status = ApplicationStatus.SHORTLISTED;
+              app.version += 1;
+              await appRepo.save(app);
+            }
+
+            await this.auditService.record(
+              {
+                actorId: null,
+                actorType: 'candidate',
+                action: 'interview.expired',
+                targetType: 'interview',
+                targetId: lockedInterview.id,
+                ownerId: lockedInterview.ownerId,
+                metadata: {
+                  interviewId: lockedInterview.id,
+                  reason: 'start_attempt_after_expiry',
+                },
+              },
+              manager,
+            );
+
             throw new ConflictException({
               code: ErrorCodes.INVITATION_UNAVAILABLE,
               message: 'Lời mời phỏng vấn đã quá hạn để bắt đầu',
@@ -397,6 +430,37 @@ export class InterviewSessionService {
           session = await this.transitionService.closeSession(
             lockedSession,
             SessionEndReason.DEADLINE_REACHED,
+            dbNow,
+            manager,
+          );
+        }
+      });
+    }
+
+    // 2. Reconcile stale advancing: Nếu session đang ở ADVANCING mà dbNow >= advanceDeadlineAt -> Recovery sang main question tiếp theo
+    if (
+      session.status === SessionStatus.IN_PROGRESS &&
+      session.runtimeState === RuntimeState.ADVANCING &&
+      session.advanceDeadlineAt &&
+      dbNow >= session.advanceDeadlineAt
+    ) {
+      await this.dataSource.transaction(async (manager) => {
+        const lockedSession = await manager
+          .getRepository(InterviewSession)
+          .createQueryBuilder('s')
+          .setLock('pessimistic_write')
+          .where('s.id = :id', { id: session!.id })
+          .getOne();
+
+        if (
+          lockedSession &&
+          lockedSession.status === SessionStatus.IN_PROGRESS &&
+          lockedSession.runtimeState === RuntimeState.ADVANCING &&
+          lockedSession.advanceDeadlineAt &&
+          dbNow >= lockedSession.advanceDeadlineAt
+        ) {
+          session = await this.turnService.recoverStaleAdvancing(
+            lockedSession,
             dbNow,
             manager,
           );

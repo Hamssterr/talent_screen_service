@@ -6,6 +6,7 @@ import { InterviewAccessCredential } from '../entities/interview-access-credenti
 import { Interview } from '../entities/interview.entity';
 import { InterviewStatus } from '../enums/interview-status.enum';
 import { InvitationTokenService } from './invitation-token.service';
+import { InterviewLifecycleService } from './interview-lifecycle.service';
 import { CandidateLobbyDto } from '../dto/interview-response.dto';
 import { ErrorCodes } from '../../../common/errors/error-codes';
 
@@ -23,6 +24,7 @@ export class CandidateAccessService {
     @InjectRepository(Interview)
     private readonly interviewRepository: Repository<Interview>,
     private readonly tokenService: InvitationTokenService,
+    private readonly lifecycleService: InterviewLifecycleService,
   ) {}
 
   /**
@@ -53,6 +55,19 @@ export class CandidateAccessService {
 
     // 1. Kiểm tra revocation & expiry của Invitation
     if (invitation.revokedAt || invitation.expiresAt < now) {
+      // Lazy reconcile Interview & Application if status is INVITED and expired
+      if (
+        interview.status === InterviewStatus.INVITED &&
+        (invitation.expiresAt < now || interview.invitationExpiresAt < now)
+      ) {
+        await this.lifecycleService
+          .expireInterview(interview.id)
+          .catch((err) => {
+            this.logger.error(
+              `Error during lazy expireInterview in exchangeToken: ${err}`,
+            );
+          });
+      }
       throw new UnauthorizedException({
         code: ErrorCodes.INVITATION_UNAVAILABLE,
         message: 'Lời mời phỏng vấn đã hết hạn hoặc bị thu hồi',
@@ -164,6 +179,18 @@ export class CandidateAccessService {
     }
 
     if (invitation.revokedAt || invitation.expiresAt < now) {
+      if (
+        interview.status === InterviewStatus.INVITED &&
+        (invitation.expiresAt < now || interview.invitationExpiresAt < now)
+      ) {
+        await this.lifecycleService
+          .expireInterview(interview.id)
+          .catch((err) => {
+            this.logger.error(
+              `Error during lazy expireInterview in getLobby: ${err}`,
+            );
+          });
+      }
       throw new UnauthorizedException({
         code: ErrorCodes.INVITATION_UNAVAILABLE,
         message: 'Lời mời phỏng vấn đã hết hạn hoặc bị thu hồi',

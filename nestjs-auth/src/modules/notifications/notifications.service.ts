@@ -6,12 +6,14 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, Repository } from 'typeorm';
-const { InjectQueue } = require('@nestjs/bullmq');
-import { Queue } from 'bullmq';
 import { Notification } from './entities/notification.entity';
 import { NotificationStatus } from './enums/notification-status.enum';
 import { NotificationType } from './enums/notification-type.enum';
 import { NotificationPayloadCryptoService } from './crypto/notification-payload-crypto.service';
+import {
+  NotificationDispatchService,
+  DispatchNotificationResult,
+} from './notification-dispatch.service';
 import { NotificationResponseDto } from './dto/notification-response.dto';
 import {
   createPaginationResult,
@@ -23,8 +25,6 @@ import { ActorContext } from '../../common/context/actor-context';
 import { PermissionsService } from '../admin/permissions/permissions.service';
 import { Permissions } from '../admin/permissions/permissions.constants';
 import { AuditService } from '../../platform/audit/audit.service';
-
-export const NOTIFICATION_QUEUE_NAME = 'interview-notification-queue';
 
 export interface CreateNotificationParams {
   ownerId: string;
@@ -45,8 +45,7 @@ export class NotificationsService {
     @InjectRepository(Notification)
     private readonly notificationRepository: Repository<Notification>,
     private readonly cryptoService: NotificationPayloadCryptoService,
-    @InjectQueue(NOTIFICATION_QUEUE_NAME)
-    private readonly notificationQueue: Queue,
+    private readonly dispatchService: NotificationDispatchService,
     private readonly permissionsService: PermissionsService,
     private readonly auditService: AuditService,
   ) {}
@@ -86,34 +85,12 @@ export class NotificationsService {
   }
 
   /**
-   * Enqueue notification ID vào BullMQ (gọi sau khi DB transaction đã commit)
+   * Dispatch trực tiếp notification sau khi DB transaction đã commit thành công
    */
-  async enqueueNotification(
+  async dispatchNotification(
     notificationId: string,
-    dedupeKey: string,
-  ): Promise<void> {
-    try {
-      await this.notificationQueue.add(
-        'send-notification',
-        { notificationId },
-        {
-          jobId: dedupeKey, // Chống duplicate job trong BullMQ
-          removeOnComplete: true,
-          removeOnFail: false,
-          attempts: 3,
-          backoff: {
-            type: 'exponential',
-            delay: 5000,
-          },
-        },
-      );
-      this.logger.log(`Enqueued notification job for ${notificationId}`);
-    } catch (error) {
-      this.logger.error(
-        `Lỗi khi enqueue notification ${notificationId}`,
-        error instanceof Error ? error.stack : error,
-      );
-    }
+  ): Promise<DispatchNotificationResult | null> {
+    return this.dispatchService.dispatch(notificationId);
   }
 
   /**
@@ -209,35 +186,47 @@ export class NotificationsService {
       });
     }
 
-    // Reset trạng thái về pending và xóa errorCode
-    notification.status = NotificationStatus.PENDING;
-    notification.errorCode = null;
-    const saved = await this.notificationRepository.save(notification);
-
     await this.auditService.record({
       actorId: actor.userId,
       actorType: 'user',
       action: 'notification.retry_requested',
       targetType: 'notification',
-      targetId: saved.id,
-      ownerId: saved.ownerId,
+      targetId: notification.id,
+      ownerId: notification.ownerId,
       metadata: {
-        interviewId: saved.interviewId,
-        type: saved.type,
+        interviewId: notification.interviewId,
+        type: notification.type,
       },
       requestId: actor.requestId,
     });
 
-    // Enqueue lại với retry dedupeKey
-    await this.enqueueNotification(
-      saved.id,
-      `${saved.dedupeKey}:retry:${Date.now()}`,
-    );
+    // Thực hiện dispatch trực tiếp
+    const dispatchResult = await this.dispatchService.dispatch(notification.id);
+    const finalNotification = dispatchResult
+      ? dispatchResult.notification
+      : notification;
+    const canRetry = dispatchResult
+      ? dispatchResult.canRetry
+      : this.isRetryable(finalNotification);
 
-    return this.mapToResponseDto(saved);
+    return this.mapToResponseDto(finalNotification, canRetry);
   }
 
-  mapToResponseDto(n: Notification): NotificationResponseDto {
+  isRetryable(n: Notification): boolean {
+    const isStatusRetryable =
+      n.status === NotificationStatus.FAILED ||
+      n.status === NotificationStatus.UNKNOWN ||
+      n.status === NotificationStatus.PENDING;
+    const hasValidPayload =
+      !!n.encryptedPayload &&
+      (!n.payloadExpiresAt || new Date() <= n.payloadExpiresAt);
+    return isStatusRetryable && hasValidPayload;
+  }
+
+  mapToResponseDto(
+    n: Notification,
+    canRetry?: boolean,
+  ): NotificationResponseDto {
     return {
       id: n.id,
       ownerId: n.ownerId,
@@ -250,8 +239,10 @@ export class NotificationsService {
       providerMessageId: n.providerMessageId,
       attempts: n.attempts,
       nextAttemptAt: n.nextAttemptAt,
+      lastAttemptAt: n.lastAttemptAt,
       acceptedAt: n.acceptedAt,
       errorCode: n.errorCode,
+      canRetry: canRetry ?? this.isRetryable(n),
       createdAt: n.createdAt,
       updatedAt: n.updatedAt,
     };

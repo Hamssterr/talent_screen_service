@@ -1,10 +1,8 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ConfigModule } from '@nestjs/config';
 import { DatabaseModule } from './database/database.module';
 import { UsersModule } from './modules/users/users.module';
 import { AuthModule } from './modules/auth/auth.module';
-import { MailModule } from './modules/mail/mail.module';
-import { RedisModule } from './modules/redis/redis.module';
 import { RateLimitModule } from './modules/rate-limit/rate-limit.module';
 import { RolesModule } from './modules/admin/roles/roles.module';
 import { PermissionsModule } from './modules/admin/permissions/permissions.module';
@@ -18,7 +16,8 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { InterviewsModule } from './modules/interviews/interviews.module';
 import { InterviewRuntimeModule } from './modules/interview-runtime/interview-runtime.module';
 import { StorageModule } from './platform/storage/storage.module';
-import { BullModule } from '@nestjs/bullmq';
+import { EmailModule } from './platform/email/email.module';
+import { ExternalProvidersModule } from './platform/external-providers/external-providers.module';
 import { configuration, validateEnv } from './config';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
 import { AuditModule } from './platform/audit/audit.module';
@@ -37,10 +36,10 @@ import { TimeModule } from './platform/time/time.module';
     IdempotencyModule,
     TimeModule,
     StorageModule,
+    ExternalProvidersModule,
+    EmailModule,
     UsersModule,
     AuthModule,
-    MailModule,
-    RedisModule,
     RateLimitModule,
     RolesModule,
     PermissionsModule,
@@ -53,17 +52,6 @@ import { TimeModule } from './platform/time/time.module';
     NotificationsModule,
     InterviewsModule,
     InterviewRuntimeModule,
-    BullModule.forRootAsync({
-      imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        connection: {
-          host: configService.get<string>('REDIS_HOST', 'localhost'),
-          port: configService.get<number>('REDIS_PORT', 6379),
-          password: configService.get<string>('REDIS_PASSWORD') || undefined,
-        },
-      }),
-    }),
   ],
 })
 export class AppModule implements NestModule {

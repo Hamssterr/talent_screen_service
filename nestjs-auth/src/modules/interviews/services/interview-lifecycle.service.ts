@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { DataSource, IsNull } from 'typeorm';
+import { DataSource, EntityManager, IsNull } from 'typeorm';
 import { Interview } from '../entities/interview.entity';
 import { InterviewStatus } from '../enums/interview-status.enum';
 import { Application } from '../../applications/entities/application.entity';
@@ -23,8 +23,11 @@ export class InterviewLifecycleService {
    * Chuyển Interview -> expired, Application -> shortlisted (tăng version),
    * revoke active invitations/credentials.
    */
-  async expireInterview(interviewId: string): Promise<boolean> {
-    return await this.dataSource.transaction(async (manager) => {
+  async expireInterview(
+    interviewId: string,
+    existingManager?: EntityManager,
+  ): Promise<boolean> {
+    const execute = async (manager: EntityManager) => {
       const interviewRepo = manager.getRepository(Interview);
       const appRepo = manager.getRepository(Application);
       const invRepo = manager.getRepository(Invitation);
@@ -116,6 +119,11 @@ export class InterviewLifecycleService {
 
       this.logger.log(`Interview ${interviewId} marked as EXPIRED`);
       return true;
-    });
+    };
+
+    if (existingManager) {
+      return execute(existingManager);
+    }
+    return this.dataSource.transaction(execute);
   }
 }

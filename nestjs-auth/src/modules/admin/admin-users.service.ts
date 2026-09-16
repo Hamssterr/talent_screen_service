@@ -2,12 +2,11 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { InjectQueue } from '@nestjs/bullmq';
-import { Queue } from 'bullmq';
 import { Brackets, DataSource, EntityManager, In } from 'typeorm';
 import { User, UserStatus } from '../users/entities/user.entity';
 import { ActionToken, TokenType } from '../auth/entities/action-token.entity';
@@ -22,6 +21,11 @@ import {
   createPaginationResult,
   PaginationQueryDto,
 } from '../../common/dto/pagination.dto';
+import {
+  EMAIL_PROVIDER_TOKEN,
+  type EmailProvider,
+} from '../../platform/email/email-provider.interface';
+import { EmailTemplateService } from '../../platform/email/templates/email-template.service';
 
 const ACTIVATION_TTL_MS = 48 * 60 * 60 * 1000;
 
@@ -31,7 +35,9 @@ export class AdminUsersService {
 
   constructor(
     private readonly dataSource: DataSource,
-    @InjectQueue('mail-queue') private readonly mailQueue: Queue,
+    @Inject(EMAIL_PROVIDER_TOKEN)
+    private readonly emailProvider: EmailProvider,
+    private readonly templateService: EmailTemplateService,
   ) {}
 
   async list(query: PaginationQueryDto = new PaginationQueryDto()) {
@@ -131,11 +137,18 @@ export class AdminUsersService {
       },
     );
 
-    await this.queueInvitation(user.id, user.email, user.name, rawToken);
+    const sendSuccess = await this.sendInvitationEmail(
+      user.id,
+      user.email,
+      user.name,
+      rawToken,
+    );
     const invitedUser = await this.findOne(user.id);
 
     return {
-      message: 'Tạo lời mời người dùng thành công',
+      message: sendSuccess
+        ? 'Tạo lời mời người dùng thành công'
+        : 'Tạo người dùng thành công nhưng gửi email mời thất bại. Vui lòng sử dụng tính năng gửi lại lời mời.',
       user: invitedUser,
     };
   }
@@ -192,9 +205,18 @@ export class AdminUsersService {
       },
     );
 
-    await this.queueInvitation(user.id, user.email, user.name, rawToken);
+    const sendSuccess = await this.sendInvitationEmail(
+      user.id,
+      user.email,
+      user.name,
+      rawToken,
+    );
 
-    return { message: 'Gửi lại email mời kích hoạt thành công' };
+    return {
+      message: sendSuccess
+        ? 'Gửi lại email mời kích hoạt thành công'
+        : 'Cấp lại token thành công nhưng gửi email thất bại. Vui lòng thử lại.',
+    };
   }
 
   async assignRoles(actorId: string, userId: string, dto: AssignUserRolesDto) {
@@ -375,22 +397,33 @@ export class AdminUsersService {
     return rows.map((row) => row.id);
   }
 
-  private async queueInvitation(
+  private async sendInvitationEmail(
     userId: string,
     email: string,
     name: string,
     token: string,
   ): Promise<boolean> {
     try {
-      await this.mailQueue.add(
-        'send-mail',
-        { type: 'ACCOUNT_INVITATION', userId, email, name, token },
-        { attempts: 3, backoff: 5000 },
-      );
+      const { subject, html } = this.templateService.renderAccountInvitation({
+        email,
+        name,
+        token,
+      });
+      const result = await this.emailProvider.sendEmail({
+        to: email,
+        subject,
+        html,
+      });
+      if (!result.success) {
+        this.logger.error(
+          `Gửi email kích hoạt tài khoản thất bại cho user ${userId}: ${result.error}`,
+        );
+        return false;
+      }
       return true;
     } catch (error) {
       this.logger.error(
-        `Không thể đưa email mời của ${userId} vào queue`,
+        `Lỗi ngoại lệ khi gửi email kích hoạt cho user ${userId}`,
         error instanceof Error ? error.stack : error,
       );
       return false;

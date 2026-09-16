@@ -1,8 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { MailerService } from '@nestjs-modules/mailer';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-function escapeHtml(text: string): string {
+export function escapeHtml(text: string): string {
   return text
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -11,26 +10,34 @@ function escapeHtml(text: string): string {
     .replace(/'/g, '&#039;');
 }
 
-/**
- * Service chuyên phụ trách việc gửi Email thông báo/xác thực cho người dùng.
- */
 @Injectable()
-export class MailService {
-  private readonly logger = new Logger(MailService.name);
+export class EmailTemplateService {
+  constructor(private readonly configService: ConfigService) {}
 
-  constructor(
-    private readonly mailerService: MailerService,
-    private readonly configService: ConfigService,
-  ) {}
+  buildLayout(
+    name: string | undefined,
+    email: string,
+    contentHtml: string,
+  ): string {
+    const displayName = escapeHtml(name || email);
+    return `
+      <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #ddd; border-radius: 8px;">
+        <h3 style="color: #2c3e50;">Xin chào ${displayName},</h3>
+        ${contentHtml}
+        <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;" />
+        <p style="font-size: 12px; color: #888; text-align: center;">Đây là email tự động, vui lòng không trả lời.</p>
+      </div>
+    `;
+  }
 
-  async sendAccountInvitation(data: {
+  renderAccountInvitation(data: {
     email: string;
     name?: string;
     token: string;
-  }) {
+  }): { subject: string; html: string } {
     const frontendUrl = this.configService.get<string>(
-      'FRONTEND_URL',
-      'http://localhost:3001',
+      'frontendUrl',
+      'http://localhost:3000',
     );
     const url = `${frontendUrl}/auth/activate-account?token=${encodeURIComponent(data.token)}`;
     const content = `
@@ -43,24 +50,19 @@ export class MailService {
       <p>Hãy mở liên kết và tự đặt mật khẩu. Link hết hạn sau 48 giờ.</p>
     `;
 
-    await this.mailerService.sendMail({
-      to: data.email,
+    return {
       subject: 'Lời mời kích hoạt tài khoản',
-      html: this.buildHtmlTemplate(data.name, data.email, content),
-    });
+      html: this.buildLayout(data.name, data.email, content),
+    };
   }
 
-  /**
-   * Gửi email chứa đường link để người dùng đặt lại mật khẩu mới.
-   */
-  async sendPasswordResetEmail(data: {
-    email: string;
-    name?: string;
-    token: string;
-  }) {
+  renderPasswordReset(data: { email: string; name?: string; token: string }): {
+    subject: string;
+    html: string;
+  } {
     const frontendUrl = this.configService.get<string>(
-      'FRONTEND_URL',
-      'http://localhost:3001',
+      'frontendUrl',
+      'http://localhost:3000',
     );
     const url = `${frontendUrl}/auth/reset-password?token=${encodeURIComponent(data.token)}`;
     const content = `
@@ -74,26 +76,16 @@ export class MailService {
       <p style="color: #ff5722;">Lưu ý: Link này sẽ hết hạn sau 15 phút.</p>
     `;
 
-    try {
-      await this.mailerService.sendMail({
-        to: data.email,
-        subject: 'Yêu cầu đặt lại mật khẩu',
-        html: this.buildHtmlTemplate(data.name, data.email, content),
-      });
-      this.logger.log(`Email đặt lại mật khẩu đã gửi tới ${data.email}`);
-    } catch (error) {
-      this.logger.error(
-        `Lỗi khi gửi email đặt lại mật khẩu tới ${data.email}`,
-        error instanceof Error ? error.stack : error,
-      );
-      throw error;
-    }
+    return {
+      subject: 'Yêu cầu đặt lại mật khẩu',
+      html: this.buildLayout(data.name, data.email, content),
+    };
   }
 
-  /**
-   * Gửi email cảnh báo bảo mật khi mật khẩu bị thay đổi.
-   */
-  async sendPasswordChangedAlert(data: { email: string; name?: string }) {
+  renderPasswordChangedAlert(data: { email: string; name?: string }): {
+    subject: string;
+    html: string;
+  } {
     const content = `
       <p>Chúng tôi gửi email này để thông báo rằng <strong>mật khẩu cho tài khoản của bạn vừa mới được thay đổi thành công.</strong></p>
       <p><strong>Nếu bạn là người thực hiện:</strong> Bạn có thể yên tâm bỏ qua email này.</p>
@@ -102,33 +94,20 @@ export class MailService {
       </p>
     `;
 
-    try {
-      await this.mailerService.sendMail({
-        to: data.email,
-        subject: 'Cảnh báo bảo mật: Mật khẩu của bạn vừa được thay đổi',
-        html: this.buildHtmlTemplate(data.name, data.email, content),
-      });
-      this.logger.log(`Email cảnh báo đổi mật khẩu đã gửi tới ${data.email}`);
-    } catch (error) {
-      this.logger.error(
-        `Lỗi khi gửi email cảnh báo đổi mật khẩu tới ${data.email}`,
-        error instanceof Error ? error.stack : error,
-      );
-      throw error;
-    }
+    return {
+      subject: 'Cảnh báo bảo mật: Mật khẩu của bạn vừa được thay đổi',
+      html: this.buildLayout(data.name, data.email, content),
+    };
   }
 
-  /**
-   * Gửi email mời phỏng vấn cho Candidate (URL fragment #token=...)
-   */
-  async sendInterviewInvitation(data: {
+  renderInterviewInvitation(data: {
     email: string;
     candidateName?: string;
     jobTitle: string;
     durationMinutes: number;
     invitationExpiresAt: Date;
     invitationUrl: string;
-  }) {
+  }): { subject: string; html: string } {
     const formattedExpiry = new Date(data.invitationExpiresAt).toLocaleString(
       'vi-VN',
       { timeZone: 'Asia/Ho_Chi_Minh' },
@@ -149,31 +128,18 @@ export class MailService {
       <p style="font-size: 13px; color: #666;"><em>Lưu ý: Thời gian làm bài chỉ bắt đầu tính sau khi bạn đã đọc kỹ hướng dẫn trong phòng chờ và nhấn nút "Bắt đầu làm bài".</em></p>
     `;
 
-    try {
-      await this.mailerService.sendMail({
-        to: data.email,
-        subject: `[TalentScreen] Thư mời phỏng vấn - Vị trí ${data.jobTitle}`,
-        html: this.buildHtmlTemplate(data.candidateName, data.email, content),
-      });
-      this.logger.log(`Email mời phỏng vấn đã gửi tới ${data.email}`);
-    } catch (error) {
-      this.logger.error(
-        `Lỗi khi gửi email mời phỏng vấn tới ${data.email}`,
-        error instanceof Error ? error.stack : error,
-      );
-      throw error;
-    }
+    return {
+      subject: `[TalentScreen] Thư mời phỏng vấn - Vị trí ${data.jobTitle}`,
+      html: this.buildLayout(data.candidateName, data.email, content),
+    };
   }
 
-  /**
-   * Gửi email thông báo hủy phỏng vấn cho Candidate
-   */
-  async sendInterviewCancelled(data: {
+  renderInterviewCancelled(data: {
     email: string;
     candidateName?: string;
     jobTitle: string;
     reason?: string;
-  }) {
+  }): { subject: string; html: string } {
     const reasonText = data.reason
       ? escapeHtml(data.reason)
       : 'Kế hoạch tuyển dụng thay đổi';
@@ -185,38 +151,9 @@ export class MailService {
       <p>Nếu bạn có bất kỳ thắc mắc nào, vui lòng liên hệ với bộ phận tuyển dụng.</p>
     `;
 
-    try {
-      await this.mailerService.sendMail({
-        to: data.email,
-        subject: `[TalentScreen] Thông báo hủy lịch phỏng vấn - Vị trí ${data.jobTitle}`,
-        html: this.buildHtmlTemplate(data.candidateName, data.email, content),
-      });
-      this.logger.log(`Email hủy phỏng vấn đã gửi tới ${data.email}`);
-    } catch (error) {
-      this.logger.error(
-        `Lỗi khi gửi email hủy phỏng vấn tới ${data.email}`,
-        error instanceof Error ? error.stack : error,
-      );
-      throw error;
-    }
-  }
-
-  /**
-   * Tạo giao diện HTML chung cho các email của hệ thống.
-   */
-  private buildHtmlTemplate(
-    name: string | undefined,
-    email: string,
-    contentHtml: string,
-  ): string {
-    const displayName = escapeHtml(name || email);
-    return `
-      <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #ddd; border-radius: 8px;">
-        <h3 style="color: #2c3e50;">Xin chào ${displayName},</h3>
-        ${contentHtml}
-        <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;" />
-        <p style="font-size: 12px; color: #888; text-align: center;">Đây là email tự động, vui lòng không trả lời.</p>
-      </div>
-    `;
+    return {
+      subject: `[TalentScreen] Thông báo hủy lịch phỏng vấn - Vị trí ${data.jobTitle}`,
+      html: this.buildLayout(data.candidateName, data.email, content),
+    };
   }
 }

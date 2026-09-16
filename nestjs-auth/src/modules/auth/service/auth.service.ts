@@ -3,19 +3,19 @@ import {
   ConflictException,
   HttpException,
   HttpStatus,
+  Inject,
   Injectable,
+  Logger,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { InjectQueue } from '@nestjs/bullmq';
 import { JwtService } from '@nestjs/jwt';
-import { Queue } from 'bullmq';
 import { DataSource } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { UsersService } from '../../users/users.service';
 import { User, UserStatus } from '../../users/entities/user.entity';
 import { RefreshTokenService } from './refresh-token.service';
-import { RedisService } from '../../redis/redis.service';
+import { LoginAttemptService } from './login-attempt.service';
 import { ForgotPasswordDto } from '../dto/forgot-password.dto';
 import { ResetPasswordDto } from '../dto/reset-password.dto';
 import { ChangePasswordDto } from '../dto/change-password.dto';
@@ -23,19 +23,28 @@ import { ActivateAccountDto } from '../dto/activate-account.dto';
 import { ActionToken, TokenType } from '../entities/action-token.entity';
 import { RefreshToken } from '../entities/refresh-token.entity';
 import { TokenUtil } from '../../../common/utils/token.util';
+import {
+  EMAIL_PROVIDER_TOKEN,
+  type EmailProvider,
+} from '../../../platform/email/email-provider.interface';
+import { EmailTemplateService } from '../../../platform/email/templates/email-template.service';
 
 /**
  * Service trung tâm xử lý các nghiệp vụ Authentication.
- * Đóng vai trò điều phối giữa các Service nhỏ hơn (User, Mail, Token).
+ * Đóng vai trò điều phối giữa các Service nhỏ hơn (User, Email, Token, LoginAttempt).
  */
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
     private readonly refreshTokenService: RefreshTokenService,
-    @InjectQueue('mail-queue') private readonly mailQueue: Queue,
-    private readonly redisService: RedisService,
+    private readonly loginAttemptService: LoginAttemptService,
+    @Inject(EMAIL_PROVIDER_TOKEN)
+    private readonly emailProvider: EmailProvider,
+    private readonly templateService: EmailTemplateService,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -92,6 +101,7 @@ export class AuthService {
 
   /**
    * Gửi link đặt lại mật khẩu vào email người dùng.
+   * Luôn trả về generic response để chống account enumeration.
    */
   async forgotPassword(dto: ForgotPasswordDto) {
     const email = dto.email.trim().toLowerCase();
@@ -125,17 +135,24 @@ export class AuthService {
         return token;
       });
 
-      await this.mailQueue.add(
-        'send-mail',
-        {
-          type: 'RESET_PASSWORD',
-          userId: user.id,
+      // Gửi email trực tiếp sau khi transaction đã commit
+      try {
+        const { subject, html } = this.templateService.renderPasswordReset({
           email: user.email,
           name: user.name,
           token: rawToken,
-        },
-        { attempts: 3, backoff: 5000 },
-      );
+        });
+        await this.emailProvider.sendEmail({
+          to: user.email,
+          subject,
+          html,
+        });
+      } catch (error) {
+        this.logger.error(
+          `Lỗi khi gửi email đặt lại mật khẩu cho ${user.id}`,
+          error instanceof Error ? error.stack : error,
+        );
+      }
     }
 
     return {
@@ -158,10 +175,61 @@ export class AuthService {
       if (
         !actionToken ||
         actionToken.usedAt ||
-        actionToken.expiresAt <= new Date()
+        new Date() > actionToken.expiresAt
       ) {
         throw new BadRequestException(
-          'Mã đặt lại mật khẩu không hợp lệ hoặc đã hết hạn',
+          'Token không hợp lệ hoặc đã hết hạn sử dụng',
+        );
+      }
+
+      actionToken.usedAt = new Date();
+      await manager.getRepository(ActionToken).save(actionToken);
+
+      const user = await manager.getRepository(User).findOne({
+        where: { id: actionToken.userId },
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      if (!user) throw new NotFoundException('Không tìm thấy người dùng');
+
+      user.passwordHash = await bcrypt.hash(dto.newPassword, 10);
+      await manager.getRepository(User).save(user);
+
+      await manager
+        .getRepository(RefreshToken)
+        .createQueryBuilder()
+        .update(RefreshToken)
+        .set({ revokedAt: new Date() })
+        .where('"userId" = :userId', { userId: user.id })
+        .andWhere('"revokedAt" IS NULL')
+        .execute();
+    });
+
+    return {
+      message:
+        'Đặt lại mật khẩu thành công. Vui lòng đăng nhập bằng mật khẩu mới.',
+    };
+  }
+
+  /**
+   * Kích hoạt tài khoản từ lời mời của Admin theo transaction nguyên tử.
+   */
+  async activateAccount(dto: ActivateAccountDto) {
+    const tokenHash = TokenUtil.hashToken(dto.token);
+
+    return this.dataSource.transaction(async (manager) => {
+      const actionToken = await manager.getRepository(ActionToken).findOne({
+        where: { tokenHash, type: TokenType.ACCOUNT_ACTIVATION },
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      if (
+        !actionToken ||
+        actionToken.usedAt ||
+        new Date() > actionToken.expiresAt
+      ) {
+        throw new BadRequestException(
+          'Token kích hoạt không hợp lệ hoặc đã hết hạn',
         );
       }
 
@@ -174,97 +242,51 @@ export class AuthService {
         throw new NotFoundException('Không tìm thấy người dùng');
       }
 
-      user.passwordHash = await bcrypt.hash(dto.newPassword, 12);
-      actionToken.usedAt = new Date();
-
-      await manager.getRepository(User).save(user);
-      await manager.getRepository(ActionToken).save(actionToken);
-
-      await manager
-        .getRepository(RefreshToken)
-        .createQueryBuilder()
-        .update(RefreshToken)
-        .set({ revokedAt: new Date() })
-        .where('"userId" = :userId', { userId: user.id })
-        .andWhere('"revokedAt" IS NULL')
-        .execute();
-    });
-
-    return { message: 'Đặt lại mật khẩu thành công.' };
-  }
-
-  /**
-   * Kích hoạt tài khoản đã được admin mời và tự thiết lập mật khẩu.
-   */
-  async activateAccount(dto: ActivateAccountDto) {
-    const tokenHash = TokenUtil.hashToken(dto.token);
-    await this.dataSource.transaction(async (manager) => {
-      const token = await manager.getRepository(ActionToken).findOne({
-        where: { tokenHash, type: TokenType.ACCOUNT_ACTIVATION },
-        lock: { mode: 'pessimistic_write' },
-      });
-      if (!token || token.usedAt || token.expiresAt <= new Date()) {
-        throw new BadRequestException(
-          'Mã kích hoạt không hợp lệ hoặc đã hết hạn',
-        );
-      }
-
-      const user = await manager.getRepository(User).findOne({
-        where: { id: token.userId },
-        lock: { mode: 'pessimistic_write' },
-      });
-      if (!user) {
-        throw new NotFoundException('Không tìm thấy người dùng');
-      }
       if (user.status !== UserStatus.PENDING || user.passwordHash) {
         throw new ConflictException(
-          'Tài khoản đã được kích hoạt hoặc không hợp lệ',
+          'Tài khoản không ở trạng thái chờ kích hoạt',
         );
       }
 
-      user.passwordHash = await bcrypt.hash(dto.password, 12);
+      actionToken.usedAt = new Date();
+      await manager.getRepository(ActionToken).save(actionToken);
+
       user.status = UserStatus.ACTIVE;
-      token.usedAt = new Date();
-
+      user.passwordHash = await bcrypt.hash(dto.password, 10);
       await manager.getRepository(User).save(user);
-      await manager.getRepository(ActionToken).save(token);
-    });
 
-    return { message: 'Kích hoạt tài khoản thành công. Bạn có thể đăng nhập.' };
+      return {
+        message: 'Kích hoạt tài khoản thành công. Bạn đã có thể đăng nhập.',
+      };
+    });
   }
 
   /**
-   * Đổi mật khẩu cho người dùng đang đăng nhập theo transaction nguyên tử.
+   * Thay đổi mật khẩu khi người dùng đã đăng nhập (cần mật khẩu cũ).
+   * Thu hồi toàn bộ Refresh Token của các thiết bị khác.
+   * Nếu gửi email cảnh báo bảo mật thất bại, không rollback đổi mật khẩu.
    */
   async changePassword(userId: string, dto: ChangePasswordDto) {
-    if (dto.oldPassword === dto.newPassword) {
-      throw new BadRequestException(
-        'Mật khẩu mới không được trùng với mật khẩu cũ',
-      );
-    }
-
     const user = await this.dataSource.transaction(async (manager) => {
-      const foundUser = await manager
-        .getRepository(User)
-        .createQueryBuilder('user')
-        .addSelect('user.passwordHash')
-        .where('user.id = :userId', { userId })
-        .setLock('pessimistic_write')
-        .getOne();
+      const foundUser = await manager.getRepository(User).findOne({
+        where: { id: userId },
+        select: { id: true, email: true, name: true, passwordHash: true },
+        lock: { mode: 'pessimistic_write' },
+      });
 
       if (!foundUser || !foundUser.passwordHash) {
-        throw new BadRequestException('Không tìm thấy tài khoản hợp lệ');
+        throw new NotFoundException('Không tìm thấy người dùng');
       }
 
-      const isPasswordValid = await bcrypt.compare(
+      const isOldPasswordValid = await bcrypt.compare(
         dto.oldPassword,
         foundUser.passwordHash,
       );
-      if (!isPasswordValid) {
-        throw new BadRequestException('Mật khẩu cũ không chính xác');
+      if (!isOldPasswordValid) {
+        throw new BadRequestException('Mật khẩu hiện tại không chính xác');
       }
 
-      foundUser.passwordHash = await bcrypt.hash(dto.newPassword, 12);
+      foundUser.passwordHash = await bcrypt.hash(dto.newPassword, 10);
       await manager.getRepository(User).save(foundUser);
 
       await manager
@@ -279,16 +301,25 @@ export class AuthService {
       return foundUser;
     });
 
-    await this.mailQueue.add(
-      'send-mail',
-      {
-        type: 'PASSWORD_CHANGED',
-        userId: user.id,
-        email: user.email,
-        name: user.name,
-      },
-      { attempts: 3, backoff: 5000 },
-    );
+    // Gửi email cảnh báo bảo mật trực tiếp ngoài transaction; không rollback nếu lỗi
+    try {
+      const { subject, html } = this.templateService.renderPasswordChangedAlert(
+        {
+          email: user.email,
+          name: user.name,
+        },
+      );
+      await this.emailProvider.sendEmail({
+        to: user.email,
+        subject,
+        html,
+      });
+    } catch (error) {
+      this.logger.error(
+        `Không thể gửi email cảnh báo đổi mật khẩu cho ${user.id}`,
+        error instanceof Error ? error.stack : error,
+      );
+    }
 
     return {
       message:
@@ -302,14 +333,20 @@ export class AuthService {
   async validateUser(email: string, password: string) {
     const normalizedEmail = email.trim().toLowerCase();
 
-    // 1. Kiểm tra Rate Limit trước tiên
-    await this.checkRateLimit(normalizedEmail);
+    // 1. Kiểm tra Rate Limit / Brute-force qua PostgreSQL
+    const isLocked = await this.loginAttemptService.isLocked(normalizedEmail);
+    if (isLocked) {
+      throw new HttpException(
+        'Tài khoản đã bị khóa do nhập sai mật khẩu quá 5 lần. Vui lòng thử lại sau 10 phút.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
 
     const user =
       await this.usersService.findByEmailWithPassword(normalizedEmail);
 
     if (!user || !user.passwordHash) {
-      await this.incrementFailedLogin(normalizedEmail);
+      await this.loginAttemptService.recordFailure(normalizedEmail);
       throw new UnauthorizedException(
         'Tài khoản hoặc mật khẩu không chính xác',
       );
@@ -317,14 +354,14 @@ export class AuthService {
 
     const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
     if (!isPasswordValid) {
-      await this.incrementFailedLogin(normalizedEmail);
+      await this.loginAttemptService.recordFailure(normalizedEmail);
       throw new UnauthorizedException(
         'Tài khoản hoặc mật khẩu không chính xác',
       );
     }
 
     // Nếu mật khẩu đúng, xóa bộ đếm sai
-    await this.clearFailedLogin(normalizedEmail);
+    await this.loginAttemptService.clearAttempts(normalizedEmail);
 
     if (user.status !== UserStatus.ACTIVE)
       throw new UnauthorizedException(
@@ -332,38 +369,6 @@ export class AuthService {
       );
 
     return user;
-  }
-
-  /**
-   * RATE LIMIT: Kiểm tra xem user có đang bị khóa tạm thời không
-   */
-  private async checkRateLimit(email: string) {
-    const attempts = await this.redisService.get<number>(`login_fail:${email}`);
-    if (attempts && attempts >= 5) {
-      throw new HttpException(
-        'Tài khoản đã bị khóa do nhập sai mật khẩu quá 5 lần. Vui lòng thử lại sau 10 phút.',
-        HttpStatus.TOO_MANY_REQUESTS,
-      );
-    }
-  }
-
-  /**
-   * RATE LIMIT: Tăng bộ đếm khi đăng nhập sai, và set thời gian khóa 10 phút (600 giây)
-   */
-  private async incrementFailedLogin(email: string) {
-    const key = `login_fail:${email}`;
-    let attempts = await this.redisService.get<number>(key);
-
-    attempts = attempts ? attempts + 1 : 1;
-
-    await this.redisService.set(key, attempts, 600);
-  }
-
-  /**
-   * RATE LIMIT: Xóa bộ đếm khi đăng nhập thành công
-   */
-  private async clearFailedLogin(email: string) {
-    await this.redisService.del(`login_fail:${email}`);
   }
 
   /**

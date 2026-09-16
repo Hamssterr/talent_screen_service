@@ -37,10 +37,18 @@ export class NotificationResponseDto {
   nextAttemptAt: Date | null;
 
   @ApiPropertyOptional()
+  lastAttemptAt: Date | null;
+
+  @ApiPropertyOptional()
   acceptedAt: Date | null;
 
   @ApiPropertyOptional()
   errorCode: string | null;
+
+  @ApiProperty({
+    description: 'Liệu notification có thể thực hiện retry hay không',
+  })
+  canRetry: boolean;
 
   @ApiProperty()
   createdAt: Date;
