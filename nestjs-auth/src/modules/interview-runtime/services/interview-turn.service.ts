@@ -222,4 +222,101 @@ export class InterviewTurnService {
 
     return updatedSession;
   }
+
+  /**
+   * Deterministic recovery khi runtimeState = advancing bị kẹt quá advanceDeadlineAt.
+   * Chuyển an toàn sang câu hỏi chính tiếp theo hoặc ready_to_finish.
+   * Không gọi Gemini trong Todo 08.
+   */
+  async recoverStaleAdvancing(
+    session: InterviewSession,
+    now: Date,
+    manager: EntityManager,
+  ): Promise<InterviewSession> {
+    const turnRepo = manager.getRepository(InterviewTurn);
+    const sessionRepo = manager.getRepository(InterviewSession);
+    const questionRepo = manager.getRepository(InterviewQuestion);
+
+    this.logger.warn(
+      `Recovering stale advancing session ${session.id}. advanceDeadlineAt=${session.advanceDeadlineAt?.toISOString()}`,
+    );
+
+    // 1. Tìm turn cuối cùng đã đóng để xác định rootQuestionId và sequenceNo
+    const lastTurn = await turnRepo.findOne({
+      where: { sessionId: session.id },
+      order: { sequenceNo: 'DESC' },
+    });
+
+    if (!lastTurn) {
+      session.runtimeState = RuntimeState.READY_TO_FINISH;
+      session.currentTurnId = null;
+      session.currentTurn = null;
+      session.advanceDeadlineAt = null;
+      session.version += 1;
+      return sessionRepo.save(session);
+    }
+
+    // 2. Tìm câu hỏi chính hiện tại để tính position kế tiếp
+    const currentQuestion = await questionRepo.findOne({
+      where: { id: lastTurn.rootQuestionId },
+    });
+
+    const nextPosition = (currentQuestion?.position || 1) + 1;
+    const nextQuestion = await questionRepo.findOne({
+      where: {
+        interviewId: session.interviewId,
+        position: nextPosition,
+      },
+    });
+
+    if (nextQuestion) {
+      const nextSequenceNo = lastTurn.sequenceNo + 1;
+      const nextTurn = turnRepo.create({
+        sessionId: session.id,
+        rootQuestionId: nextQuestion.id,
+        parentTurnId: null,
+        sequenceNo: nextSequenceNo,
+        kind: TurnKind.MAIN,
+        followUpIndex: 0,
+        text: nextQuestion.text,
+        status: TurnStatus.OPEN,
+        presentedAt: now,
+        closedAt: null,
+        aiRunId: null,
+      });
+      const savedNextTurn = await turnRepo.save(nextTurn);
+
+      session.currentTurnId = savedNextTurn.id;
+      session.currentTurn = savedNextTurn;
+      session.runtimeState = RuntimeState.AWAITING_ANSWER;
+      session.advanceDeadlineAt = null;
+    } else {
+      session.currentTurnId = null;
+      session.currentTurn = null;
+      session.runtimeState = RuntimeState.READY_TO_FINISH;
+      session.advanceDeadlineAt = null;
+    }
+
+    session.version += 1;
+    const recoveredSession = await sessionRepo.save(session);
+
+    await this.auditService.record(
+      {
+        actorId: null,
+        actorType: 'system',
+        action: 'interview_session.advancing_recovered',
+        targetType: 'interview_session',
+        targetId: session.id,
+        metadata: {
+          sessionId: session.id,
+          interviewId: session.interviewId,
+          recoveredToState: recoveredSession.runtimeState,
+          newCurrentTurnId: recoveredSession.currentTurnId,
+        },
+      },
+      manager,
+    );
+
+    return recoveredSession;
+  }
 }

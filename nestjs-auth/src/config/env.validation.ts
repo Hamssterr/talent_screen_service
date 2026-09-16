@@ -1,13 +1,7 @@
 export function validateEnv(
   config: Record<string, unknown>,
 ): Record<string, unknown> {
-  const requiredEnvs = [
-    'DATABASE_URL',
-    'JWT_ACCESS_SECRET',
-    'REDIS_HOST',
-    'MAIL_USER',
-    'MAIL_PASSWORD',
-  ];
+  const requiredEnvs = ['DATABASE_URL', 'JWT_ACCESS_SECRET'];
 
   const missing = requiredEnvs.filter(
     (key) =>
@@ -19,6 +13,29 @@ export function validateEnv(
       `[Config Validation Failed] Missing required environment variables:\n  - ` +
         missing.join('\n  - '),
     );
+  }
+
+  const emailProvider = (
+    (config['EMAIL_PROVIDER'] as string) || 'local'
+  ).toLowerCase();
+  if (
+    emailProvider !== 'local' &&
+    emailProvider !== 'smtp' &&
+    emailProvider !== 'nodemailer'
+  ) {
+    throw new Error(
+      `[Config Validation Failed] EMAIL_PROVIDER must be 'local', 'smtp' or 'nodemailer', got '${emailProvider}'`,
+    );
+  }
+
+  if (emailProvider === 'smtp' || emailProvider === 'nodemailer') {
+    const mailUser = config['MAIL_USER'] as string;
+    const mailPass = config['MAIL_PASSWORD'] as string;
+    if (!mailUser || !mailUser.trim() || !mailPass || !mailPass.trim()) {
+      throw new Error(
+        `[Config Validation Failed] MAIL_USER and MAIL_PASSWORD are required when EMAIL_PROVIDER is '${emailProvider}'`,
+      );
+    }
   }
 
   const driver = (config['DOCUMENT_STORAGE_DRIVER'] as string) || 'local';

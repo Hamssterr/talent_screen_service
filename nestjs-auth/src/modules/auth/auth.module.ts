@@ -5,17 +5,19 @@ import { UsersModule } from '../users/users.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { RefreshToken } from './entities/refresh-token.entity';
 import { ActionToken } from './entities/action-token.entity';
+import { LoginAttempt } from './entities/login-attempt.entity';
 import { LocalStrategy } from './strategies/local.strategy';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { RefreshTokenService } from './service/refresh-token.service';
 import { ActionTokenService } from './service/action-token.service';
+import { LoginAttemptService } from './service/login-attempt.service';
 
 @Module({
   imports: [
     UsersModule,
-    TypeOrmModule.forFeature([RefreshToken, ActionToken]),
+    TypeOrmModule.forFeature([RefreshToken, ActionToken, LoginAttempt]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -35,7 +37,8 @@ import { ActionTokenService } from './service/action-token.service';
     AuthService,
     RefreshTokenService,
     ActionTokenService,
+    LoginAttemptService,
   ],
-  exports: [ActionTokenService, RefreshTokenService],
+  exports: [ActionTokenService, RefreshTokenService, LoginAttemptService],
 })
 export class AuthModule {}

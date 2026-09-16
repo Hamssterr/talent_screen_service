@@ -15,20 +15,19 @@ export default () => ({
     refreshSecret: process.env.JWT_REFRESH_SECRET,
     refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
   },
-  redis: {
-    host: process.env.REDIS_HOST || 'localhost',
-    port: parseInt(process.env.REDIS_PORT || '6379', 10),
-    password: process.env.REDIS_PASSWORD || undefined,
-  },
   mail: {
+    provider: process.env.EMAIL_PROVIDER || 'local',
     host: process.env.MAIL_HOST || 'smtp.gmail.com',
-    port: parseInt(process.env.MAIL_PORT || '587', 10),
-    user: process.env.MAIL_USER,
-    password: process.env.MAIL_PASSWORD,
+    port: parseInt(process.env.MAIL_PORT || '465', 10),
+    user: process.env.MAIL_USER || '',
+    password: process.env.MAIL_PASSWORD || '',
+    secure: process.env.MAIL_SECURE !== 'false',
     from:
-      process.env.MAIL_FROM ||
-      process.env.MAIL_USER ||
-      'noreply@talentscreen.com',
+      process.env.EMAIL_FROM ||
+      (process.env.MAIL_USER
+        ? `Talent Screen <${process.env.MAIL_USER}>`
+        : 'TalentScreen <noreply@talentscreen.com>'),
+    timeoutMs: parseInt(process.env.EMAIL_TIMEOUT_MS || '10000', 10),
   },
   storage: {
     driver: process.env.DOCUMENT_STORAGE_DRIVER || 'local',
@@ -56,5 +55,9 @@ export default () => ({
       process.env.NOTIFICATION_PAYLOAD_TTL_MINUTES || '10080',
       10,
     ), // 7 days
+    sendingStaleMs: parseInt(
+      process.env.NOTIFICATION_SENDING_STALE_MS || '120000',
+      10,
+    ), // 2 minutes
   },
 });

@@ -39,6 +39,7 @@ import {
 import { InterviewStatus } from '../enums/interview-status.enum';
 import { InterviewLanguage } from '../enums/interview-language.enum';
 import { InvitationTokenService } from './invitation-token.service';
+import { InterviewLifecycleService } from './interview-lifecycle.service';
 import { NotificationsService } from '../../notifications/notifications.service';
 import { NotificationType } from '../../notifications/enums/notification-type.enum';
 import { AuditService } from '../../../platform/audit/audit.service';
@@ -96,6 +97,7 @@ export class InterviewsService {
     private readonly permissionsService: PermissionsService,
     private readonly auditService: AuditService,
     private readonly configService: ConfigService,
+    private readonly lifecycleService: InterviewLifecycleService,
   ) {}
 
   /**
@@ -470,12 +472,15 @@ export class InterviewsService {
       };
     });
 
-    // 17. Enqueue notification job sau khi transaction đã commit thành công
-    if (createdNotificationId && notificationDedupeKey) {
-      await this.notificationsService.enqueueNotification(
-        createdNotificationId,
-        notificationDedupeKey,
-      );
+    // 17. Dispatch notification trực tiếp sau khi transaction đã commit thành công
+    if (createdNotificationId) {
+      const dispatchResult =
+        await this.notificationsService.dispatchNotification(
+          createdNotificationId,
+        );
+      if (dispatchResult) {
+        result.notification.status = dispatchResult.notification.status;
+      }
     }
 
     return result;
@@ -570,6 +575,20 @@ export class InterviewsService {
         code: ErrorCodes.INTERVIEW_NOT_FOUND,
         message: 'Phỏng vấn không tồn tại',
       });
+    }
+
+    // Lazy reconcile nếu status là invited và đã quá hạn
+    const now = new Date();
+    if (
+      interview.status === InterviewStatus.INVITED &&
+      interview.invitationExpiresAt < now
+    ) {
+      await this.lifecycleService.expireInterview(interview.id).catch((err) => {
+        this.logger.error(
+          `Error during lazy expireInterview in findOne: ${err}`,
+        );
+      });
+      interview.status = InterviewStatus.EXPIRED;
     }
 
     return this.mapToDetailDto(interview);
@@ -787,10 +806,9 @@ export class InterviewsService {
       return this.mapToDetailDto(updatedInterview);
     });
 
-    if (cancelNotificationId && cancelDedupeKey) {
-      await this.notificationsService.enqueueNotification(
+    if (cancelNotificationId) {
+      await this.notificationsService.dispatchNotification(
         cancelNotificationId,
-        cancelDedupeKey,
       );
     }
 
@@ -983,10 +1001,9 @@ export class InterviewsService {
       return this.mapToDetailDto(updatedInterview);
     });
 
-    if (resendNotificationId && resendDedupeKey) {
-      await this.notificationsService.enqueueNotification(
+    if (resendNotificationId) {
+      await this.notificationsService.dispatchNotification(
         resendNotificationId,
-        resendDedupeKey,
       );
     }
 
