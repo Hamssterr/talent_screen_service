@@ -11,34 +11,34 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { createHash, randomUUID } from 'crypto';
 import { Readable } from 'stream';
-import { CvVersion } from './entities/cv-version.entity';
-import { Application } from '../applications/entities/application.entity';
-import { ApplicationStatus } from '../applications/enums/application-status.enum';
-import { StorageProvider } from './enums/storage-provider.enum';
-import { CvExtractionStatus } from './enums/cv-extraction-status.enum';
-import { CvProfileStatus } from './enums/cv-profile-status.enum';
+import { CvVersion } from '../entities/cv-version.entity';
+import { Application } from '../../applications/entities/application.entity';
+import { ApplicationStatus } from '../../applications/enums/application-status.enum';
+import { StorageProvider } from '../enums/storage-provider.enum';
+import { CvExtractionStatus } from '../enums/cv-extraction-status.enum';
+import { CvProfileStatus } from '../enums/cv-profile-status.enum';
 import {
   CvVersionDetailDto,
   CvVersionSafeDto,
-} from './dto/cv-version-response.dto';
-import { ListCvVersionsQueryDto } from './dto/list-cv-versions-query.dto';
-import { UpdateCvProfileDto } from './dto/update-cv-profile.dto';
-import { ApproveCvProfileDto } from './dto/approve-cv-profile.dto';
+} from '../dto/cv-version-response.dto';
+import { ListCvVersionsQueryDto } from '../dto/list-cv-versions-query.dto';
+import { UpdateCvProfileDto } from '../dto/update-cv-profile.dto';
+import { ApproveCvProfileDto } from '../dto/approve-cv-profile.dto';
 import {
   DOCUMENT_STORAGE_TOKEN,
   type DocumentStorage,
-} from '../../platform/storage/document-storage.interface';
-import { AuditService } from '../../platform/audit/audit.service';
-import { IdempotencyService } from '../../platform/idempotency/idempotency.service';
-import { PermissionsService } from '../admin/permissions/permissions.service';
-import { Permissions } from '../admin/permissions/permissions.constants';
-import { ActorContext } from '../../common/context/actor-context';
+} from '../../../platform/storage/document-storage.interface';
+import { AuditService } from '../../../platform/audit/audit.service';
+import { IdempotencyService } from '../../../platform/idempotency/idempotency.service';
+import { PermissionsService } from '../../admin/permissions/permissions.service';
+import { Permissions } from '../../admin/permissions/permissions.constants';
+import { ActorContext } from '../../../common/context/actor-context';
 import {
   createPaginationResult,
   PaginatedResult,
-} from '../../common/dto/pagination.dto';
-import { VersionConflictException } from '../../common/dto/expected-version.dto';
-import { ErrorCodes } from '../../common/errors/error-codes';
+} from '../../../common/dto/pagination.dto';
+import { VersionConflictException } from '../../../common/dto/expected-version.dto';
+import { ErrorCodes } from '../../../common/errors/error-codes';
 import { ConfigService } from '@nestjs/config';
 
 @Injectable()
@@ -199,7 +199,7 @@ export class CvVersionsService {
     const storageKey = `${folder}/${application.id}/${randomUUID()}.pdf`;
 
     // 1. Upload to storage adapter first (no DB lock held)
-    let storedDoc: import('../../platform/storage').StoredDocument;
+    let storedDoc: import('../../../platform/storage').StoredDocument;
     try {
       storedDoc = await this.documentStorage.put(storageKey, file.buffer, {
         mimeType: 'application/pdf',
@@ -550,6 +550,25 @@ export class CvVersionsService {
         });
       }
 
+      // Concurrency policy (Todo 09): Chặn manual update khi AI đang processing (và chưa stale)
+      const staleMs = this.configService.get<number>(
+        'cvExtraction.processingStaleMs',
+        120000,
+      );
+      const isProcessingStale =
+        Date.now() - new Date(cv.updatedAt).getTime() > staleMs;
+
+      if (
+        cv.extractionStatus === CvExtractionStatus.PROCESSING &&
+        !isProcessingStale
+      ) {
+        throw new ConflictException({
+          code: ErrorCodes.CV_EXTRACTION_IN_PROGRESS,
+          message:
+            'CV đang trong quá trình trích xuất tự động bởi AI. Vui lòng chờ hoàn tất trước khi chỉnh sửa profile.',
+        });
+      }
+
       if (cv.profileVersion !== dto.expectedProfileVersion) {
         throw new VersionConflictException(
           `Phiên bản profile không khớp (hiện tại: ${cv.profileVersion}, yêu cầu: ${dto.expectedProfileVersion})`,
@@ -647,6 +666,25 @@ export class CvVersionsService {
         throw new ConflictException({
           code: ErrorCodes.CV_PROFILE_LOCKED,
           message: 'Profile này đã được duyệt trước đó',
+        });
+      }
+
+      // Concurrency policy (Todo 09): Chặn manual approve khi AI đang processing (và chưa stale)
+      const staleMs = this.configService.get<number>(
+        'cvExtraction.processingStaleMs',
+        120000,
+      );
+      const isProcessingStale =
+        Date.now() - new Date(cv.updatedAt).getTime() > staleMs;
+
+      if (
+        cv.extractionStatus === CvExtractionStatus.PROCESSING &&
+        !isProcessingStale
+      ) {
+        throw new ConflictException({
+          code: ErrorCodes.CV_EXTRACTION_IN_PROGRESS,
+          message:
+            'CV đang trong quá trình trích xuất tự động bởi AI. Vui lòng chờ hoàn tất trước khi phê duyệt profile.',
         });
       }
 

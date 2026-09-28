@@ -15,6 +15,9 @@ import { RuntimeProjectionService } from './services/runtime-projection.service'
 import { InterviewsModule } from '../interviews/interviews.module';
 import { IdempotencyModule } from '../../platform/idempotency/idempotency.module';
 import { AuditModule } from '../../platform/audit/audit.module';
+import { AiModule } from '../ai/ai.module';
+import { ConfigModule } from '@nestjs/config';
+import { FollowUpAiService } from './services/follow-up-ai.service';
 
 @Module({
   imports: [
@@ -30,6 +33,8 @@ import { AuditModule } from '../../platform/audit/audit.module';
     forwardRef(() => InterviewsModule),
     IdempotencyModule,
     AuditModule,
+    AiModule,
+    ConfigModule,
   ],
   controllers: [CandidateSessionController],
   providers: [
@@ -37,12 +42,14 @@ import { AuditModule } from '../../platform/audit/audit.module';
     InterviewTurnService,
     RuntimeTransitionService,
     RuntimeProjectionService,
+    FollowUpAiService,
   ],
   exports: [
     InterviewSessionService,
     InterviewTurnService,
     RuntimeTransitionService,
     RuntimeProjectionService,
+    FollowUpAiService,
   ],
 })
 export class InterviewRuntimeModule {}

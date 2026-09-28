@@ -24,7 +24,9 @@ export const CurrentActor = createParamDecorator(
     return {
       userId: user.id,
       email: user.email,
-      requestId: req.requestId || 'unknown-request-id',
+      requestId:
+        (req as Request & { requestId?: string }).requestId ||
+        'unknown-request-id',
     };
   },
 );

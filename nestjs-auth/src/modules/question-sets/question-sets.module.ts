@@ -7,8 +7,12 @@ import { CvVersion } from '../documents/entities/cv-version.entity';
 import { Job } from '../jobs/entities/job.entity';
 import { QuestionSetsController } from './question-sets.controller';
 import { QuestionSetsService } from './question-sets.service';
+import { QuestionGenerationService } from './services/question-generation.service';
 import { PermissionsModule } from '../admin/permissions/permissions.module';
 import { AuditModule } from '../../platform/audit/audit.module';
+import { AiModule } from '../ai/ai.module';
+import { IdempotencyModule } from '../../platform/idempotency/idempotency.module';
+import { ConfigModule } from '@nestjs/config';
 
 @Module({
   imports: [
@@ -21,9 +25,12 @@ import { AuditModule } from '../../platform/audit/audit.module';
     ]),
     PermissionsModule,
     AuditModule,
+    AiModule,
+    IdempotencyModule,
+    ConfigModule,
   ],
   controllers: [QuestionSetsController],
-  providers: [QuestionSetsService],
-  exports: [QuestionSetsService],
+  providers: [QuestionSetsService, QuestionGenerationService],
+  exports: [QuestionSetsService, QuestionGenerationService],
 })
 export class QuestionSetsModule {}

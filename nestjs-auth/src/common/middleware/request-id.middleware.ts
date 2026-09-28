@@ -20,7 +20,7 @@ export class RequestIdMiddleware implements NestMiddleware {
       requestId = randomUUID();
     }
 
-    req.requestId = requestId;
+    (req as Request & { requestId?: string }).requestId = requestId;
     res.setHeader('X-Request-Id', requestId);
     next();
   }

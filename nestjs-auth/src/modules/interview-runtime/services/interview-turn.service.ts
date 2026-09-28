@@ -16,6 +16,23 @@ import { RuntimeState } from '../enums/runtime-state.enum';
 import { RuntimeTransitionService } from './runtime-transition.service';
 import { ErrorCodes } from '../../../common/errors/error-codes';
 import { AuditService } from '../../../platform/audit/audit.service';
+import { AiRunService } from '../../ai/services/ai-run.service';
+import { AiRun } from '../../ai/entities/ai-run.entity';
+import { AiRunStatus } from '../../ai/enums/ai-run-status.enum';
+import {
+  FollowUpAiService,
+  FollowUpDecisionContext,
+} from './follow-up-ai.service';
+
+export interface SubmitAnswerResult {
+  session: InterviewSession;
+  isAdvancing: boolean;
+  aiContext?: FollowUpDecisionContext;
+  aiRunId?: string;
+  expectedSessionVersion?: number;
+  parentTurnId?: string;
+  answerText?: string;
+}
 
 @Injectable()
 export class InterviewTurnService {
@@ -24,6 +41,8 @@ export class InterviewTurnService {
   constructor(
     private readonly transitionService: RuntimeTransitionService,
     private readonly auditService: AuditService,
+    private readonly aiRunService: AiRunService,
+    private readonly followUpAiService: FollowUpAiService,
   ) {}
 
   /**
@@ -56,14 +75,13 @@ export class InterviewTurnService {
 
   /**
    * Submit hoặc Skip answer cho current Turn.
-   * Manual mode:
    * - Xác thực payload (text vs isSkipped)
    * - Kiểm tra turn hợp lệ
    * - Tạo Answer bất biến
    * - Đóng Turn (answered | skipped)
-   * - Tìm câu hỏi kế tiếp theo position
-   * - Nếu còn câu hỏi: mở Turn mới (open), sequenceNo + 1
-   * - Nếu hết câu hỏi: chuyển session sang READY_TO_FINISH, currentTurnId = null
+   * - Đánh giá eligibility gọi AI Follow-up:
+   *   + Nếu đủ điều kiện: chuyển session sang ADVANCING, set advanceDeadlineAt, tạo AiRun, trả về context để gọi AI ngoài transaction.
+   *   + Nếu không đủ điều kiện: mở câu hỏi chính kế tiếp (hoặc READY_TO_FINISH).
    */
   async submitAnswer(
     session: InterviewSession,
@@ -73,7 +91,7 @@ export class InterviewTurnService {
     now: Date,
     manager: EntityManager,
     clientRequestId?: string,
-  ): Promise<InterviewSession> {
+  ): Promise<SubmitAnswerResult> {
     const turnRepo = manager.getRepository(InterviewTurn);
     const answerRepo = manager.getRepository(Answer);
     const sessionRepo = manager.getRepository(InterviewSession);
@@ -155,8 +173,66 @@ export class InterviewTurnService {
     turn.closedAt = now;
     await turnRepo.save(turn);
 
-    // 6. Tìm câu hỏi chính tiếp theo (Manual mode)
-    // Lấy câu hỏi hiện tại để biết position
+    // 6. Đánh giá eligibility gọi AI Follow-up
+    const aiContext = await this.followUpAiService.evaluateEligibility(
+      session,
+      turn,
+      trimmedText || null,
+      isSkipped,
+      now,
+      manager,
+    );
+
+    if (aiContext.shouldCallAi) {
+      // Chuẩn bị Transaction 1 cho AI: runtimeState = ADVANCING
+      const { advanceDeadlineAt, aiRunId } =
+        await this.followUpAiService.prepareAdvancingRun(
+          manager,
+          aiContext,
+          now,
+        );
+
+      session.currentTurnId = null;
+      session.currentTurn = null;
+      session.runtimeState = RuntimeState.ADVANCING;
+      session.advanceDeadlineAt = advanceDeadlineAt;
+      session.version += 1;
+
+      const updatedSession = await sessionRepo.save(session);
+
+      await this.auditService.record(
+        {
+          actorId: null,
+          actorType: 'candidate',
+          action: 'answer.submitted',
+          targetType: 'interview_turn',
+          targetId: turn.id,
+          metadata: {
+            sessionId: session.id,
+            interviewId: session.interviewId,
+            sequenceNo: turn.sequenceNo,
+            isSkipped,
+            contentHash,
+            runtimeState: session.runtimeState,
+            aiRunId,
+          },
+        },
+        manager,
+      );
+
+      return {
+        session: updatedSession,
+        isAdvancing: true,
+        aiContext,
+        aiRunId,
+        expectedSessionVersion: updatedSession.version,
+        parentTurnId: turn.id,
+        answerText: trimmedText!,
+      };
+    }
+
+    // Không đủ điều kiện gọi AI (skip, hết budget, disabled, cận deadline, v.v.)
+    // Tìm câu hỏi chính tiếp theo (Manual mode)
     const currentQuestion = await questionRepo.findOne({
       where: { id: turn.rootQuestionId },
     });
@@ -190,17 +266,19 @@ export class InterviewTurnService {
       session.currentTurnId = savedNextTurn.id;
       session.currentTurn = savedNextTurn;
       session.runtimeState = RuntimeState.AWAITING_ANSWER;
+      session.advanceDeadlineAt = null;
     } else {
       // Hết câu hỏi chính -> READY_TO_FINISH
       session.currentTurnId = null;
       session.currentTurn = null;
       session.runtimeState = RuntimeState.READY_TO_FINISH;
+      session.advanceDeadlineAt = null;
     }
 
     session.version += 1;
     const updatedSession = await sessionRepo.save(session);
 
-    // 7. Audit log (chỉ lưu ID, trạng thái, KHÔNG ghi text câu trả lời nhạy cảm)
+    // Audit log (chỉ lưu ID, trạng thái, KHÔNG ghi text câu trả lời nhạy cảm)
     await this.auditService.record(
       {
         actorId: null,
@@ -220,7 +298,10 @@ export class InterviewTurnService {
       manager,
     );
 
-    return updatedSession;
+    return {
+      session: updatedSession,
+      isAdvancing: false,
+    };
   }
 
   /**
@@ -240,6 +321,24 @@ export class InterviewTurnService {
     this.logger.warn(
       `Recovering stale advancing session ${session.id}. advanceDeadlineAt=${session.advanceDeadlineAt?.toISOString()}`,
     );
+
+    // 0. Tìm và supersede AiRun đang PROCESSING của session này nếu có
+    const aiRunRepo = manager.getRepository(AiRun);
+    const activeRuns = await aiRunRepo.find({
+      where: {
+        aggregateType: 'interview_session',
+        aggregateId: session.id,
+        status: AiRunStatus.PROCESSING,
+      },
+    });
+
+    for (const run of activeRuns) {
+      await this.aiRunService.fail(
+        manager,
+        run.id,
+        ErrorCodes.ADVANCING_RECOVERED,
+      );
+    }
 
     // 1. Tìm turn cuối cùng đã đóng để xác định rootQuestionId và sequenceNo
     const lastTurn = await turnRepo.findOne({

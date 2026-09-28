@@ -22,9 +22,11 @@
     "migration:generate": "npm run typeorm -- migration:generate -d src/database/data-source.ts",
     "migration:run": "npm run typeorm -- migration:run -d src/database/data-source.ts",
     "migration:revert": "npm run typeorm -- migration:revert -d src/database/data-source.ts",
-    "authz:bootstrap-admin": "ts-node -r tsconfig-paths/register src/scripts/bootstrap-admin.ts"
+    "authz:bootstrap-admin": "ts-node -r tsconfig-paths/register src/scripts/bootstrap-admin.ts",
+    "ai:verify": "ts-node -r tsconfig-paths/register src/scripts/verify-gemini.ts"
   },
   "dependencies": {
+    "@google/genai": "^2.23.0",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.4",
     "@nestjs/core": "^11.0.1",
@@ -45,10 +47,13 @@
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "passport-local": "^1.0.0",
+    "pdfjs-dist": "^3.11.174",
     "pg": "^8.23.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
-    "typeorm": "^1.1.0"
+    "typeorm": "^1.1.0",
+    "zod": "^3.25.76",
+    "zod-to-json-schema": "^3.25.2"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",

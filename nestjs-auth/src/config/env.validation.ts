@@ -73,5 +73,55 @@ export function validateEnv(
     }
   }
 
+  // AI Gemini configuration validation
+  const geminiApiKey = config['GEMINI_API_KEY'] as string | undefined;
+  const geminiModel = config['GEMINI_MODEL'] as string | undefined;
+  const hasKey = !!(
+    geminiApiKey &&
+    typeof geminiApiKey === 'string' &&
+    geminiApiKey.trim()
+  );
+  const hasModel = !!(
+    geminiModel &&
+    typeof geminiModel === 'string' &&
+    geminiModel.trim()
+  );
+
+  if (hasKey && !hasModel) {
+    throw new Error(
+      `[Config Validation Failed] GEMINI_MODEL is required when GEMINI_API_KEY is configured`,
+    );
+  }
+
+  if (!hasKey && hasModel) {
+    throw new Error(
+      `[Config Validation Failed] GEMINI_API_KEY is required when GEMINI_MODEL is configured`,
+    );
+  }
+
+  const timeoutKeys = [
+    'AI_PROFILE_TIMEOUT_MS',
+    'AI_QUESTION_TIMEOUT_MS',
+    'AI_FOLLOW_UP_TIMEOUT_MS',
+    'AI_SUMMARY_TIMEOUT_MS',
+    'CV_EXTRACTION_MAX_PAGES',
+    'CV_EXTRACTION_MAX_TEXT_CHARS',
+    'AI_PROCESSING_STALE_MS',
+  ];
+
+  for (const tKey of timeoutKeys) {
+    const raw = config[tKey];
+    if (raw !== undefined && raw !== null && raw !== '') {
+      const rawVal =
+        typeof raw === 'string' || typeof raw === 'number' ? `${raw}` : '';
+      const val = parseInt(rawVal, 10);
+      if (isNaN(val) || val <= 0) {
+        throw new Error(
+          `[Config Validation Failed] ${tKey} must be a positive integer, got '${rawVal}'`,
+        );
+      }
+    }
+  }
+
   return config;
 }

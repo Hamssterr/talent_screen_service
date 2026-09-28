@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Headers,
   HttpCode,
   HttpStatus,
   Param,
@@ -19,7 +20,9 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { QuestionSetsService } from './question-sets.service';
+import { QuestionGenerationService } from './services/question-generation.service';
 import { CreateQuestionSetDto } from './dto/create-question-set.dto';
+import { RetryQuestionGenerationDto } from './dto/retry-question-generation.dto';
 import { UpdateQuestionSetItemsDto } from './dto/update-question-set-items.dto';
 import { ApproveQuestionSetDto } from './dto/approve-question-set.dto';
 import { ListQuestionSetsQueryDto } from './dto/list-question-sets-query.dto';
@@ -27,6 +30,7 @@ import {
   QuestionSetDetailDto,
   QuestionSetSummaryDto,
 } from './dto/question-set-response.dto';
+import { QuestionSetMode } from './enums/question-set-mode.enum';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../admin/permissions/guards/permissions.guard';
 import { RequirePermissions } from '../admin/permissions/decorators/permissions.decorator';
@@ -41,13 +45,17 @@ import { PaginatedResult } from '../../common/dto/pagination.dto';
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller()
 export class QuestionSetsController {
-  constructor(private readonly questionSetsService: QuestionSetsService) {}
+  constructor(
+    private readonly questionSetsService: QuestionSetsService,
+    private readonly questionGenerationService: QuestionGenerationService,
+  ) {}
 
   @Post('applications/:applicationId/question-sets')
   @RequirePermissions(Permissions.QuestionSetsCreate)
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
-    summary: 'Tạo Question Set thủ công (draft) cho hồ sơ ứng tuyển',
+    summary:
+      'Tạo Question Set (thủ công hoặc bằng AI Gemini) cho hồ sơ ứng tuyển',
   })
   @ApiResponse({
     status: 201,
@@ -67,15 +75,59 @@ export class QuestionSetsController {
       'Application không ở trạng thái shortlisted hoặc CV profile chưa approved',
   })
   @ResponseMessage('Tạo bộ câu hỏi draft thành công')
-  async createManualDraft(
+  async createDraft(
     @CurrentActor() actor: ActorContext,
     @Param('applicationId', ParseUUIDPipe) applicationId: string,
     @Body() dto: CreateQuestionSetDto,
+    @Headers('idempotency-key') idempotencyKey?: string,
   ): Promise<QuestionSetDetailDto> {
+    if (dto.mode === QuestionSetMode.AI) {
+      return this.questionGenerationService.generateDraft(
+        actor,
+        applicationId,
+        dto,
+        idempotencyKey,
+      );
+    }
+
     return this.questionSetsService.createManualDraft(
       actor,
       applicationId,
       dto,
+    );
+  }
+
+  @Post('question-sets/:id/retry-generation')
+  @RequirePermissions(Permissions.QuestionSetsCreate)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Thử lại việc sinh bộ câu hỏi bằng AI khi thất bại hoặc stale',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Thử lại sinh bộ câu hỏi thành công',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Không thể retry hoặc yêu cầu không hợp lệ',
+  })
+  @ApiResponse({
+    status: 409,
+    description:
+      'Xung đột phiên bản generationVersion hoặc trạng thái không cho phép',
+  })
+  @ResponseMessage('Thử lại tạo bộ câu hỏi thành công')
+  async retryGeneration(
+    @CurrentActor() actor: ActorContext,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RetryQuestionGenerationDto,
+    @Headers('idempotency-key') idempotencyKey?: string,
+  ): Promise<QuestionSetDetailDto> {
+    return this.questionGenerationService.retryGeneration(
+      actor,
+      id,
+      dto,
+      idempotencyKey,
     );
   }
 
