@@ -60,4 +60,44 @@ export default () => ({
       10,
     ), // 2 minutes
   },
+  ai: {
+    provider: process.env.AI_PROVIDER || 'gemini',
+    geminiApiKey: process.env.GEMINI_API_KEY || '',
+    geminiModel: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite',
+    profileTimeoutMs: parseInt(
+      process.env.AI_PROFILE_TIMEOUT_MS || '30000',
+      10,
+    ),
+    questionTimeoutMs: parseInt(
+      process.env.AI_QUESTION_TIMEOUT_MS || '30000',
+      10,
+    ),
+    followUpTimeoutMs: parseInt(
+      process.env.AI_FOLLOW_UP_TIMEOUT_MS || '15000',
+      10,
+    ),
+    followUpMinRemainingMs: parseInt(
+      process.env.AI_FOLLOW_UP_MIN_REMAINING_MS || '20000',
+      10,
+    ),
+    followUpRecoveryGraceMs: parseInt(
+      process.env.AI_FOLLOW_UP_RECOVERY_GRACE_MS || '5000',
+      10,
+    ),
+    summaryTimeoutMs: parseInt(
+      process.env.AI_SUMMARY_TIMEOUT_MS || '30000',
+      10,
+    ),
+  },
+  cvExtraction: {
+    maxPages: parseInt(process.env.CV_EXTRACTION_MAX_PAGES || '20', 10),
+    maxTextChars: parseInt(
+      process.env.CV_EXTRACTION_MAX_TEXT_CHARS || '50000',
+      10,
+    ),
+    processingStaleMs: parseInt(
+      process.env.AI_PROCESSING_STALE_MS || '120000',
+      10,
+    ),
+  },
 });

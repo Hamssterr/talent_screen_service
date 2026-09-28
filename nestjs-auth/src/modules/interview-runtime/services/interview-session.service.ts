@@ -25,9 +25,13 @@ import { StartInterviewDto } from '../dto/start-interview.dto';
 import { SubmitAnswerDto } from '../dto/submit-answer.dto';
 import { FinishSessionDto } from '../dto/finish-session.dto';
 import { CandidateSessionResponseDto } from '../dto/session-response.dto';
-import { InterviewTurnService } from './interview-turn.service';
+import {
+  InterviewTurnService,
+  SubmitAnswerResult,
+} from './interview-turn.service';
 import { RuntimeTransitionService } from './runtime-transition.service';
 import { RuntimeProjectionService } from './runtime-projection.service';
+import { FollowUpAiService } from './follow-up-ai.service';
 import { IdempotencyService } from '../../../platform/idempotency/idempotency.service';
 import { AuditService } from '../../../platform/audit/audit.service';
 import { ErrorCodes } from '../../../common/errors/error-codes';
@@ -55,6 +59,7 @@ export class InterviewSessionService {
     private readonly credentialRepository: Repository<InterviewAccessCredential>,
     private readonly tokenService: InvitationTokenService,
     private readonly turnService: InterviewTurnService,
+    private readonly followUpAiService: FollowUpAiService,
     private readonly transitionService: RuntimeTransitionService,
     private readonly projectionService: RuntimeProjectionService,
     private readonly idempotencyService: IdempotencyService,
@@ -508,6 +513,8 @@ export class InterviewSessionService {
       method: 'POST',
       body: dto,
       action: async () => {
+        let submitResult!: SubmitAnswerResult;
+
         await this.dataSource.transaction(async (manager) => {
           const sessionRepo = manager.getRepository(InterviewSession);
           const dbNow = await this.getDatabaseTime(manager);
@@ -551,8 +558,8 @@ export class InterviewSessionService {
             );
           }
 
-          // 2. Thực hiện submit answer qua TurnService
-          await this.turnService.submitAnswer(
+          // 2. Thực hiện submit answer qua TurnService (Transaction 1)
+          submitResult = await this.turnService.submitAnswer(
             lockedSession,
             dto.turnId,
             dto.text,
@@ -562,6 +569,21 @@ export class InterviewSessionService {
             idempotencyKey,
           );
         });
+
+        // Ngoài Transaction 1: Điều phối Gemini và Transaction 2 nếu phiên đang ADVANCING
+        if (
+          submitResult.isAdvancing &&
+          submitResult.aiContext &&
+          submitResult.aiRunId
+        ) {
+          await this.followUpAiService.executeFollowUpWorkflow({
+            context: submitResult.aiContext,
+            aiRunId: submitResult.aiRunId,
+            expectedSessionVersion: submitResult.expectedSessionVersion!,
+            parentTurnId: submitResult.parentTurnId!,
+            answerText: submitResult.answerText!,
+          });
+        }
 
         // Load lại đầy đủ turns để project
         const fullSession = await this.sessionRepository.findOne({

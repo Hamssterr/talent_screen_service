@@ -44,6 +44,8 @@ export const Permissions = {
   InterviewsRevoke: 'interviews:revoke',
   InterviewsResend: 'interviews:resend',
   InterviewsManage: 'interviews:manage',
+  ReviewsRead: 'reviews:read',
+  ReviewsCreate: 'reviews:create',
 } as const;
 
 export type PermissionKey = (typeof Permissions)[keyof typeof Permissions];

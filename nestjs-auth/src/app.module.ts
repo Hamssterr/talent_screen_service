@@ -15,6 +15,8 @@ import { QuestionSetsModule } from './modules/question-sets/question-sets.module
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { InterviewsModule } from './modules/interviews/interviews.module';
 import { InterviewRuntimeModule } from './modules/interview-runtime/interview-runtime.module';
+import { ReviewsModule } from './modules/reviews/reviews.module';
+import { AiModule } from './modules/ai/ai.module';
 import { StorageModule } from './platform/storage/storage.module';
 import { EmailModule } from './platform/email/email.module';
 import { ExternalProvidersModule } from './platform/external-providers/external-providers.module';
@@ -52,6 +54,8 @@ import { TimeModule } from './platform/time/time.module';
     NotificationsModule,
     InterviewsModule,
     InterviewRuntimeModule,
+    ReviewsModule,
+    AiModule,
   ],
 })
 export class AppModule implements NestModule {

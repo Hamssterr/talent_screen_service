@@ -27,7 +27,8 @@ import {
 } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
-import { CvVersionsService } from './cv-versions.service';
+import { CvVersionsService } from './services/cv-versions.service';
+import { CvProfileAiService } from './services/cv-profile-ai.service';
 import {
   CvVersionDetailDto,
   CvVersionSafeDto,
@@ -35,6 +36,9 @@ import {
 import { ListCvVersionsQueryDto } from './dto/list-cv-versions-query.dto';
 import { UpdateCvProfileDto } from './dto/update-cv-profile.dto';
 import { ApproveCvProfileDto } from './dto/approve-cv-profile.dto';
+import { ExtractCvProfileDto } from './dto/extract-cv-profile.dto';
+import { RetryCvExtractionDto } from './dto/retry-cv-extraction.dto';
+import { CvExtractionResponseDto } from './dto/cv-extraction-response.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../admin/permissions/guards/permissions.guard';
 import { RequirePermissions } from '../admin/permissions/decorators/permissions.decorator';
@@ -49,7 +53,10 @@ import { SkipTransformResponse } from '../../common/decorators/skip-transform-re
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller()
 export class CvVersionsController {
-  constructor(private readonly cvVersionsService: CvVersionsService) {}
+  constructor(
+    private readonly cvVersionsService: CvVersionsService,
+    private readonly cvProfileAiService: CvProfileAiService,
+  ) {}
 
   @Post('applications/:applicationId/cv-versions')
   @RequirePermissions(Permissions.CvUpload)
@@ -242,5 +249,117 @@ export class CvVersionsController {
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<void> {
     return this.cvVersionsService.remove(actor, id);
+  }
+
+  @Post('cv-versions/:id/extract-profile')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions(Permissions.CvUpdateProfile)
+  @ApiOperation({
+    summary: 'Kích hoạt AI trích xuất thông tin hồ sơ từ tài liệu CV (PDF)',
+  })
+  @ApiHeader({
+    name: 'Idempotency-Key',
+    required: true,
+    description:
+      'Khóa idempotency đảm bảo không kích hoạt lặp tác vụ trích xuất',
+  })
+  @ResponseMessage('Trích xuất profile từ CV thành công')
+  @ApiResponse({
+    status: 200,
+    description: 'Trích xuất profile thành công (trả về profile draft)',
+    type: CvExtractionResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Dữ liệu đầu vào không hợp lệ hoặc thiếu Idempotency-Key',
+  })
+  @ApiResponse({ status: 401, description: 'Chưa xác thực' })
+  @ApiResponse({
+    status: 403,
+    description: 'Không có quyền cv:update-profile',
+  })
+  @ApiResponse({ status: 404, description: 'Không tìm thấy phiên bản CV' })
+  @ApiResponse({
+    status: 409,
+    description:
+      'Xung đột phiên bản (VERSION_CONFLICT), hồ sơ đang xử lý (AI_PROCESSING_CONFLICT), hoặc profile đã duyệt (CV_PROFILE_ALREADY_APPROVED)',
+  })
+  @ApiResponse({
+    status: 422,
+    description:
+      'File PDF không thể trích xuất (mã hóa CV_ENCRYPTED_PDF, bản scan CV_TEXT_UNAVAILABLE, hoặc vượt số trang CV_PAGE_LIMIT_EXCEEDED)',
+  })
+  @ApiResponse({
+    status: 502,
+    description:
+      'Lỗi từ dịch vụ AI (AI_PROVIDER_UNAVAILABLE, AI_TIMEOUT, AI_INVALID_OUTPUT)',
+  })
+  extractProfile(
+    @CurrentActor() actor: ActorContext,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ExtractCvProfileDto,
+    @Headers('idempotency-key') idempotencyKey?: string,
+  ): Promise<CvExtractionResponseDto> {
+    return this.cvProfileAiService.extractProfile(
+      actor,
+      id,
+      dto,
+      idempotencyKey,
+    );
+  }
+
+  @Post('cv-versions/:id/retry-extraction')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions(Permissions.CvUpdateProfile)
+  @ApiOperation({
+    summary:
+      'Thử lại việc trích xuất AI cho phiên bản CV thất bại hoặc quá hạn',
+  })
+  @ApiHeader({
+    name: 'Idempotency-Key',
+    required: true,
+    description: 'Khóa idempotency đảm bảo không retry lặp',
+  })
+  @ResponseMessage('Thử lại trích xuất profile CV thành công')
+  @ApiResponse({
+    status: 200,
+    description: 'Thử lại trích xuất profile thành công',
+    type: CvExtractionResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Dữ liệu đầu vào không hợp lệ hoặc thiếu Idempotency-Key',
+  })
+  @ApiResponse({ status: 401, description: 'Chưa xác thực' })
+  @ApiResponse({
+    status: 403,
+    description: 'Không có quyền cv:update-profile',
+  })
+  @ApiResponse({ status: 404, description: 'Không tìm thấy phiên bản CV' })
+  @ApiResponse({
+    status: 409,
+    description:
+      'Xung đột phiên bản hoặc trạng thái hiện tại không cho phép retry',
+  })
+  @ApiResponse({
+    status: 422,
+    description: 'File PDF không thể trích xuất',
+  })
+  @ApiResponse({
+    status: 502,
+    description: 'Lỗi từ dịch vụ AI',
+  })
+  retryExtraction(
+    @CurrentActor() actor: ActorContext,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RetryCvExtractionDto,
+    @Headers('idempotency-key') idempotencyKey?: string,
+  ): Promise<CvExtractionResponseDto> {
+    return this.cvProfileAiService.retryExtraction(
+      actor,
+      id,
+      dto,
+      idempotencyKey,
+    );
   }
 }
