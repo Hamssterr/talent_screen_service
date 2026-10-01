@@ -193,6 +193,24 @@ export class NotificationDispatchService {
           jobTitle: (payload.jobTitle as string) || 'Vị trí ứng tuyển',
           reason: payload.reason as string | undefined,
         });
+      } else if (
+        claimedNotification.type === NotificationType.APPLICATION_APPROVED
+      ) {
+        emailContent = this.templateService.renderApplicationApproved({
+          email: claimedNotification.recipient,
+          candidateName: payload.candidateName as string | undefined,
+          jobTitle: (payload.jobTitle as string) || 'Vị trí ứng tuyển',
+          candidateMessage: payload.candidateMessage as string | undefined,
+        });
+      } else if (
+        claimedNotification.type === NotificationType.APPLICATION_REJECTED
+      ) {
+        emailContent = this.templateService.renderApplicationRejected({
+          email: claimedNotification.recipient,
+          candidateName: payload.candidateName as string | undefined,
+          jobTitle: (payload.jobTitle as string) || 'Vị trí ứng tuyển',
+          candidateMessage: payload.candidateMessage as string | undefined,
+        });
       } else {
         return this.finalizeFailed(
           claimedNotification.id,

@@ -44,11 +44,11 @@ export function validateSummaryOutput(
           errorMessage: `Bằng chứng turnId "${turnId}" không tồn tại trong transcript buổi phỏng vấn.`,
         };
       }
-      if (turn.isSkipped) {
+      if (turn.isSkipped || !turn.answerText || !turn.answerText.trim()) {
         return {
           isValid: false,
           errorCode: 'AI_INVALID_OUTPUT',
-          errorMessage: `Không được dùng lượt bị bỏ qua (turnId "${turnId}") làm bằng chứng cho điểm mạnh.`,
+          errorMessage: `Không được dùng lượt bị bỏ qua hoặc chưa trả lời (turnId "${turnId}") làm bằng chứng cho điểm mạnh.`,
         };
       }
     }
@@ -71,6 +71,13 @@ export function validateSummaryOutput(
           isValid: false,
           errorCode: 'AI_INVALID_OUTPUT',
           errorMessage: `Bằng chứng turnId "${turnId}" không tồn tại trong transcript buổi phỏng vấn.`,
+        };
+      }
+      if (turn.isSkipped || !turn.answerText || !turn.answerText.trim()) {
+        return {
+          isValid: false,
+          errorCode: 'AI_INVALID_OUTPUT',
+          errorMessage: `Không được dùng lượt bị bỏ qua hoặc chưa trả lời (turnId "${turnId}") làm bằng chứng cho điểm hạn chế.`,
         };
       }
     }
@@ -98,11 +105,19 @@ export function validateSummaryOutput(
     }
 
     for (const turnId of cov.evidenceTurnIds) {
-      if (!turnMap.has(turnId)) {
+      const turn = turnMap.get(turnId);
+      if (!turn) {
         return {
           isValid: false,
           errorCode: 'AI_INVALID_OUTPUT',
           errorMessage: `Bằng chứng turnId "${turnId}" trong coverage không tồn tại trong transcript.`,
+        };
+      }
+      if (turn.isSkipped || !turn.answerText || !turn.answerText.trim()) {
+        return {
+          isValid: false,
+          errorCode: 'AI_INVALID_OUTPUT',
+          errorMessage: `Không được dùng lượt bị bỏ qua hoặc chưa trả lời (turnId "${turnId}") làm bằng chứng trong coverage.`,
         };
       }
     }

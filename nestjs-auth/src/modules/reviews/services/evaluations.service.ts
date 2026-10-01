@@ -1,10 +1,10 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Evaluation } from '../entities/evaluation.entity';
+import { EvaluationType } from '../enums/evaluation-type.enum';
 import { Interview } from '../../interviews/entities/interview.entity';
 import { EvaluationResponseDto } from '../dto/evaluation-response.dto';
-import { ErrorCodes } from '../../../common/errors/error-codes';
 
 @Injectable()
 export class EvaluationsService {
@@ -16,22 +16,21 @@ export class EvaluationsService {
   ) {}
 
   /**
-   * Lấy danh sách toàn bộ các evaluations (HR review & AI summary) của một buổi phỏng vấn.
+   * Lấy danh sách các evaluations (HR review & AI summary) của một buổi phỏng vấn.
    */
-  async getEvaluations(interviewId: string): Promise<EvaluationResponseDto[]> {
-    const interview = await this.interviewRepository.findOne({
-      where: { id: interviewId },
-    });
-
-    if (!interview) {
-      throw new NotFoundException({
-        code: ErrorCodes.INTERVIEW_NOT_FOUND,
-        message: 'Không tìm thấy buổi phỏng vấn',
-      });
+  async getEvaluations(
+    interviewId: string,
+    type?: EvaluationType,
+  ): Promise<EvaluationResponseDto[]> {
+    const where: { interviewId: string; type?: EvaluationType } = {
+      interviewId,
+    };
+    if (type) {
+      where.type = type;
     }
 
     const evaluations = await this.evaluationRepository.find({
-      where: { interviewId },
+      where,
       order: { createdAt: 'DESC', revision: 'DESC' },
     });
 

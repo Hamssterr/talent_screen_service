@@ -156,4 +156,57 @@ export class EmailTemplateService {
       html: this.buildLayout(data.candidateName, data.email, content),
     };
   }
+
+  renderApplicationApproved(data: {
+    email: string;
+    candidateName?: string;
+    jobTitle: string;
+    candidateMessage?: string;
+  }): { subject: string; html: string } {
+    const messageBlock = data.candidateMessage
+      ? `
+      <div style="background-color: #f8f9fa; border-left: 4px solid #28a745; padding: 15px; margin: 20px 0;">
+        <p style="margin: 0;">${escapeHtml(data.candidateMessage)}</p>
+      </div>`
+      : '';
+
+    const content = `
+      <p>Chúc mừng bạn! Hồ sơ ứng tuyển của bạn cho vị trí <strong>${escapeHtml(data.jobTitle)}</strong> đã được phê duyệt.</p>
+      ${messageBlock}
+      <p>Bộ phận nhân sự sẽ sớm liên hệ với bạn để trao đổi các bước tiếp theo trong quy trình tuyển dụng.</p>
+      <p>Trân trọng cảm ơn sự quan tâm của bạn dành cho công ty chúng tôi.</p>
+    `;
+
+    return {
+      subject: `[TalentScreen] Kết quả ứng tuyển: Chúc mừng bạn đã trúng tuyển vị trí ${data.jobTitle}`,
+      html: this.buildLayout(data.candidateName, data.email, content),
+    };
+  }
+
+  renderApplicationRejected(data: {
+    email: string;
+    candidateName?: string;
+    jobTitle: string;
+    candidateMessage?: string;
+  }): { subject: string; html: string } {
+    const messageBlock = data.candidateMessage
+      ? `
+      <div style="background-color: #f8f9fa; border-left: 4px solid #6c757d; padding: 15px; margin: 20px 0;">
+        <p style="margin: 0;">${escapeHtml(data.candidateMessage)}</p>
+      </div>`
+      : '';
+
+    const content = `
+      <p>Cảm ơn bạn đã dành thời gian và sự quan tâm tham gia ứng tuyển cho vị trí <strong>${escapeHtml(data.jobTitle)}</strong>.</p>
+      <p>Sau khi xem xét kỹ lưỡng hồ sơ và phần thể hiện của bạn, chúng tôi rất tiếc phải thông báo rằng chưa thể đồng hành cùng bạn ở vị trí này vào thời điểm hiện tại.</p>
+      ${messageBlock}
+      <p>Hồ sơ của bạn sẽ được lưu trữ trong hệ thống và chúng tôi sẽ chủ động liên hệ lại khi có cơ hội việc làm khác phù hợp hơn trong tương lai.</p>
+      <p>Chúc bạn luôn thành công trên con đường sự nghiệp!</p>
+    `;
+
+    return {
+      subject: `[TalentScreen] Thông báo kết quả ứng tuyển - Vị trí ${data.jobTitle}`,
+      html: this.buildLayout(data.candidateName, data.email, content),
+    };
+  }
 }

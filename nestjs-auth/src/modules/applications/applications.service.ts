@@ -10,6 +10,7 @@ import { DataSource, In, IsNull, Repository } from 'typeorm';
 import { Application } from './entities/application.entity';
 import { ApplicationStatus } from './enums/application-status.enum';
 import { ApplicationListScope } from './enums/application-list-scope.enum';
+import { assertApplicationNotTerminal } from './policies/application-terminal.policy';
 import { CreateApplicationDto } from './dto/create-application.dto';
 import { UpdateApplicationDto } from './dto/update-application.dto';
 import { WithdrawApplicationDto } from './dto/withdraw-application.dto';
@@ -360,6 +361,11 @@ export class ApplicationsService {
           message: 'Bạn không có quyền cập nhật hồ sơ ứng tuyển này',
         });
       }
+
+      assertApplicationNotTerminal(
+        application.status,
+        'Hồ sơ ứng tuyển đã ở trạng thái kết thúc, không thể cập nhật ghi chú.',
+      );
 
       // Check version
       if (application.version !== dto.expectedVersion) {

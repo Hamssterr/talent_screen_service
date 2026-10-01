@@ -51,9 +51,50 @@ export class TranscriptTurnDto {
   answer?: TranscriptTurnAnswerDto | null;
 }
 
+export class TranscriptCoverageDto {
+  @ApiProperty({ example: 5 })
+  mainTotal: number;
+
+  @ApiProperty({ example: 4 })
+  mainAnswered: number;
+
+  @ApiProperty({ example: 1 })
+  mainSkipped: number;
+
+  @ApiProperty({ example: 0 })
+  mainUnanswered: number;
+
+  @ApiProperty({ example: 3 })
+  followUpsTotal: number;
+
+  @ApiProperty({ example: 2 })
+  followUpsAnswered: number;
+
+  @ApiProperty({ example: 1 })
+  followUpsSkipped: number;
+}
+
 export class TranscriptResponseDto {
   @ApiProperty({ example: '3fa85f64-5717-4562-b3fc-2c963f66afa6' })
   interviewId: string;
+
+  @ApiProperty({ example: '3fa85f64-5717-4562-b3fc-2c963f66afa6' })
+  applicationId: string;
+
+  @ApiProperty({ example: 1 })
+  roundNo: number;
+
+  @ApiPropertyOptional({ example: '3fa85f64-5717-4562-b3fc-2c963f66afa6' })
+  cvVersionId?: string | null;
+
+  @ApiPropertyOptional({ example: '2026-09-25T12:00:00.000Z' })
+  deadlineAt?: Date | null;
+
+  @ApiPropertyOptional({ example: { title: 'Backend Engineer' } })
+  jobSnapshot?: Record<string, any> | null;
+
+  @ApiPropertyOptional({ example: { fullName: 'Nguyen Van A' } })
+  profileSnapshot?: Record<string, any> | null;
 
   @ApiPropertyOptional({ example: '3fa85f64-5717-4562-b3fc-2c963f66afa6' })
   sessionId?: string | null;
@@ -69,6 +110,9 @@ export class TranscriptResponseDto {
 
   @ApiPropertyOptional({ example: '2026-09-20T12:20:00.000Z' })
   endedAt?: Date | null;
+
+  @ApiProperty({ type: TranscriptCoverageDto })
+  coverage: TranscriptCoverageDto;
 
   @ApiProperty({ type: [TranscriptTurnDto] })
   turns: TranscriptTurnDto[];

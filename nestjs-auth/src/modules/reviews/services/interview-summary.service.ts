@@ -1,9 +1,9 @@
 import {
   BadGatewayException,
+  BadRequestException,
   ConflictException,
   Injectable,
   Logger,
-  NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -14,8 +14,11 @@ import { EvaluationType } from '../enums/evaluation-type.enum';
 import { Interview } from '../../interviews/entities/interview.entity';
 import { InterviewSession } from '../../interview-runtime/entities/interview-session.entity';
 import { SessionStatus } from '../../interview-runtime/enums/session-status.enum';
+import { Application } from '../../applications/entities/application.entity';
+import { isApplicationTerminal } from '../../applications/policies/application-terminal.policy';
 import { TranscriptProjectionService } from './transcript-projection.service';
 import { EvaluationsService } from './evaluations.service';
+import { ReviewAccessPolicy } from './review-access.policy';
 import { AiService } from '../../ai/ai.service';
 import { AiRunService } from '../../ai/services/ai-run.service';
 import { AiTask } from '../../ai/enums/ai-task.enum';
@@ -55,6 +58,7 @@ export class InterviewSummaryService {
     private readonly idempotencyService: IdempotencyService,
     private readonly transcriptProjectionService: TranscriptProjectionService,
     private readonly evaluationsService: EvaluationsService,
+    private readonly reviewAccessPolicy: ReviewAccessPolicy,
     @InjectRepository(Evaluation)
     private readonly evaluationRepository: Repository<Evaluation>,
     @InjectRepository(Interview)
@@ -75,6 +79,13 @@ export class InterviewSummaryService {
     actor: ActorContext,
     idempotencyKey?: string,
   ): Promise<EvaluationResponseDto> {
+    if (!idempotencyKey || !idempotencyKey.trim()) {
+      throw new BadRequestException({
+        code: ErrorCodes.VALIDATION_FAILED,
+        message: 'Header Idempotency-Key là bắt buộc khi tạo lại bản tóm tắt',
+      });
+    }
+
     const actorScope = `user:${actor.userId}:interview-summary:${interviewId}`;
 
     const executed = await this.idempotencyService.execute({
@@ -84,21 +95,25 @@ export class InterviewSummaryService {
       method: 'POST',
       body: { interviewId },
       action: async () => {
-        // 1. Kiểm tra Interview tồn tại
-        const interview = await this.interviewRepository.findOne({
-          where: { id: interviewId },
-        });
+        // 1. Kiểm tra Interview và quyền truy cập (Resource Hiding 404)
+        const interview =
+          await this.reviewAccessPolicy.getAccessibleInterviewOrThrow(
+            interviewId,
+            actor,
+          );
 
-        if (!interview) {
-          throw new NotFoundException({
-            code: ErrorCodes.INTERVIEW_NOT_FOUND,
-            message: 'Không tìm thấy buổi phỏng vấn',
+        // 2. Chặn nếu Application đã ở trạng thái terminal
+        if (isApplicationTerminal(interview.application.status)) {
+          throw new ConflictException({
+            code: ErrorCodes.APPLICATION_TERMINAL,
+            message:
+              'Hồ sơ ứng tuyển đã ở trạng thái kết thúc, không thể tạo lại bản tóm tắt.',
           });
         }
 
-        // 2. Kiểm tra Session phải tồn tại và terminal
+        // 3. Kiểm tra Session phải tồn tại và terminal
         const session = await this.sessionRepository.findOne({
-          where: { interviewId },
+          where: { interviewId: interview.id },
         });
 
         if (!session) {
@@ -255,12 +270,31 @@ export class InterviewSummaryService {
         // --- TRANSACTION 2: LƯU EVALUATION REVISION MỚI & SUCCEED AI_RUN ---
         let savedEvaluation!: Evaluation;
         await this.dataSource.transaction(async (manager) => {
+          // Khóa pessimistic Interview row để chống race condition cho cả revision 1
+          await manager
+            .getRepository(Interview)
+            .createQueryBuilder('i')
+            .setLock('pessimistic_write')
+            .where('i.id = :id', { id: interview.id })
+            .getOne();
+
+          // Kiểm tra lại Application status trong Tx2
+          const currentApp = await manager
+            .getRepository(Application)
+            .findOne({ where: { id: interview.applicationId } });
+          if (currentApp && isApplicationTerminal(currentApp.status)) {
+            throw new ConflictException({
+              code: ErrorCodes.APPLICATION_TERMINAL,
+              message:
+                'Hồ sơ ứng tuyển đã kết thúc, không thể lưu bản tóm tắt.',
+            });
+          }
+
           const evalRepo = manager.getRepository(Evaluation);
 
           // Tìm revision cao nhất hiện tại của ai_summary cho interview này
           const latestSummary = await evalRepo
             .createQueryBuilder('e')
-            .setLock('pessimistic_write')
             .where('e.interview_id = :interviewId', {
               interviewId: interview.id,
             })
