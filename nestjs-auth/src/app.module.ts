@@ -16,6 +16,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { InterviewsModule } from './modules/interviews/interviews.module';
 import { InterviewRuntimeModule } from './modules/interview-runtime/interview-runtime.module';
 import { ReviewsModule } from './modules/reviews/reviews.module';
+import { DecisionsModule } from './modules/decisions/decisions.module';
 import { AiModule } from './modules/ai/ai.module';
 import { StorageModule } from './platform/storage/storage.module';
 import { EmailModule } from './platform/email/email.module';
@@ -55,6 +56,7 @@ import { TimeModule } from './platform/time/time.module';
     InterviewsModule,
     InterviewRuntimeModule,
     ReviewsModule,
+    DecisionsModule,
     AiModule,
   ],
 })

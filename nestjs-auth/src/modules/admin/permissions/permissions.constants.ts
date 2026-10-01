@@ -46,6 +46,9 @@ export const Permissions = {
   InterviewsManage: 'interviews:manage',
   ReviewsRead: 'reviews:read',
   ReviewsCreate: 'reviews:create',
+  DecisionsRead: 'decisions:read',
+  DecisionsCreate: 'decisions:create',
+  DecisionsManage: 'decisions:manage',
 } as const;
 
 export type PermissionKey = (typeof Permissions)[keyof typeof Permissions];

@@ -19,6 +19,9 @@ import { InterviewSummaryService } from './services/interview-summary.service';
 import { EvaluationsService } from './services/evaluations.service';
 import { TranscriptProjectionService } from './services/transcript-projection.service';
 
+import { ReviewAccessPolicy } from './services/review-access.policy';
+import { HrReviewService } from './services/hr-review.service';
+
 @Module({
   imports: [
     TypeOrmModule.forFeature([
@@ -43,11 +46,15 @@ import { TranscriptProjectionService } from './services/transcript-projection.se
     InterviewSummaryService,
     EvaluationsService,
     TranscriptProjectionService,
+    ReviewAccessPolicy,
+    HrReviewService,
   ],
   exports: [
     InterviewSummaryService,
     EvaluationsService,
     TranscriptProjectionService,
+    ReviewAccessPolicy,
+    HrReviewService,
   ],
 })
 export class ReviewsModule {}

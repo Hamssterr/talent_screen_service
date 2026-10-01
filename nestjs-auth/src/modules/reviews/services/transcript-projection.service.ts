@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { Interview } from '../../interviews/entities/interview.entity';
@@ -11,13 +11,10 @@ import {
   TranscriptTurnDto,
 } from '../dto/transcript-response.dto';
 import { SummaryTranscriptTurn } from '../../ai/tasks/summary/summary-ai.types';
-import { ErrorCodes } from '../../../common/errors/error-codes';
 
 @Injectable()
 export class TranscriptProjectionService {
   constructor(
-    @InjectRepository(Interview)
-    private readonly interviewRepository: Repository<Interview>,
     @InjectRepository(InterviewSession)
     private readonly sessionRepository: Repository<InterviewSession>,
     @InjectRepository(InterviewTurn)
@@ -29,30 +26,43 @@ export class TranscriptProjectionService {
   /**
    * Tải toàn bộ transcript của buổi phỏng vấn theo đúng trình tự sequenceNo.
    */
-  async getTranscript(interviewId: string): Promise<TranscriptResponseDto> {
-    const interview = await this.interviewRepository.findOne({
-      where: { id: interviewId },
+  async getTranscript(interview: Interview): Promise<TranscriptResponseDto> {
+    const questions = await this.questionRepository.find({
+      where: { interviewId: interview.id },
+      order: { position: 'ASC' },
     });
+    const mainTotal = questions.length;
 
-    if (!interview) {
-      throw new NotFoundException({
-        code: ErrorCodes.INTERVIEW_NOT_FOUND,
-        message: 'Không tìm thấy buổi phỏng vấn',
-      });
-    }
+    const baseCoverage = {
+      mainTotal,
+      mainAnswered: 0,
+      mainSkipped: 0,
+      mainUnanswered: mainTotal,
+      followUpsTotal: 0,
+      followUpsAnswered: 0,
+      followUpsSkipped: 0,
+    };
 
     const session = await this.sessionRepository.findOne({
-      where: { interviewId },
+      where: { interviewId: interview.id },
     });
 
     if (!session) {
       return {
-        interviewId,
+        interviewId: interview.id,
+        applicationId: interview.applicationId,
+        roundNo: interview.roundNo,
+        cvVersionId: interview.cvVersionId,
+        deadlineAt: interview.invitationExpiresAt,
+        jobSnapshot: (interview.jobSnapshot as Record<string, any>) || null,
+        profileSnapshot:
+          (interview.profileSnapshot as Record<string, any>) || null,
         sessionId: null,
         sessionStatus: null,
         endReason: null,
         startedAt: null,
         endedAt: null,
+        coverage: baseCoverage,
         turns: [],
       };
     }
@@ -63,16 +73,44 @@ export class TranscriptProjectionService {
       order: { sequenceNo: 'ASC' },
     });
 
-    const questions = await this.questionRepository.find({
-      where: { interviewId },
-    });
     const questionMap = new Map<string, InterviewQuestion>();
     for (const q of questions) {
       questionMap.set(q.id, q);
     }
 
+    let mainAnswered = 0;
+    let mainSkipped = 0;
+    let followUpsTotal = 0;
+    let followUpsAnswered = 0;
+    let followUpsSkipped = 0;
+
+    const answeredRootQuestions = new Set<string>();
+
     const projectedTurns: TranscriptTurnDto[] = turns.map((turn) => {
       const rootQ = questionMap.get(turn.rootQuestionId);
+      const isMain = turn.kind === TurnKind.MAIN;
+      const isFollowUp = turn.kind === TurnKind.FOLLOW_UP;
+
+      if (isMain) {
+        if (turn.answer) {
+          if (turn.answer.isSkipped) {
+            mainSkipped += 1;
+          } else if (turn.answer.text && turn.answer.text.trim()) {
+            mainAnswered += 1;
+            answeredRootQuestions.add(turn.rootQuestionId);
+          }
+        }
+      } else if (isFollowUp) {
+        followUpsTotal += 1;
+        if (turn.answer) {
+          if (turn.answer.isSkipped) {
+            followUpsSkipped += 1;
+          } else if (turn.answer.text && turn.answer.text.trim()) {
+            followUpsAnswered += 1;
+          }
+        }
+      }
+
       return {
         turnId: turn.id,
         sequenceNo: turn.sequenceNo,
@@ -95,13 +133,31 @@ export class TranscriptProjectionService {
       };
     });
 
+    const mainUnanswered = Math.max(0, mainTotal - mainAnswered - mainSkipped);
+
     return {
-      interviewId,
+      interviewId: interview.id,
+      applicationId: interview.applicationId,
+      roundNo: interview.roundNo,
+      cvVersionId: interview.cvVersionId,
+      deadlineAt: interview.invitationExpiresAt,
+      jobSnapshot: (interview.jobSnapshot as Record<string, any>) || null,
+      profileSnapshot:
+        (interview.profileSnapshot as Record<string, any>) || null,
       sessionId: session.id,
       sessionStatus: session.status,
       endReason: session.endReason,
       startedAt: session.startedAt,
       endedAt: session.endedAt,
+      coverage: {
+        mainTotal,
+        mainAnswered,
+        mainSkipped,
+        mainUnanswered,
+        followUpsTotal,
+        followUpsAnswered,
+        followUpsSkipped,
+      },
       turns: projectedTurns,
     };
   }
